@@ -1,0 +1,42 @@
+media-converter/
+├── backend/
+│   ├── src/
+│   │   ├── __init__.py
+│   │   ├── main.py
+│   │   ├── api/
+│   │   │   ├── __init__.py
+│   │   │   └── routes.py
+│   │   ├── services/
+│   │   │   ├── __init__.py
+│   │   │   ├── youtube_service.py
+│   │   │   └── converter_service.py
+│   │   └── utils/
+│   │       ├── __init__.py
+│   │       └── validators.py
+│   ├── tests/
+│   │   ├── __init__.py
+│   │   ├── test_youtube_service.py
+│   │   ├── test_converter_service.py
+│   │   └── test_integration.py
+│   ├── requirements.txt
+│   └── pytest.ini
+├── frontend/
+│   ├── package.json
+│   ├── next.config.js
+│   ├── app/
+│   │   ├── page.tsx
+│   │   ├── layout.tsx
+│   │   ├── youtube-to-mp4/
+│   │   │   └── page.tsx
+│   │   ├── youtube-to-mp3/
+│   │   │   └── page.tsx
+│   │   └── mp4-to-mp3/
+│   │       └── page.tsx
+│   └── components/
+│       ├── ToolCard.tsx
+│       └── ConversionForm.tsx
+├── docker-compose.yml
+├── Dockerfile.backend
+├── Dockerfile.frontend
+├── .gitignore
+└── README.md
