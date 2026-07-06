@@ -296,3 +296,210 @@ async def estimate_compression(
         if os.path.exists(temp_input):
             os.remove(temp_input)
         raise HTTPException(status_code=500, detail=f"Estimate error: {str(e)}")
+
+
+# Image Compression endpoints
+from src.services.image_compression_service import (
+    ImageCompressionService,
+    CompressionMode as ImageCompressionMode,
+    ImageFormat,
+)
+
+image_compression_service = ImageCompressionService()
+
+
+@router.post("/compress/image")
+async def compress_image(
+    file: UploadFile = File(...),
+    mode: str = "balanced",
+    target_format: str | None = None,
+    quality: int | None = None,
+    max_width: int | None = None,
+    max_height: int | None = None,
+):
+    """
+    Compress and optimize an image (like TinyPNG).
+    
+    Supports: PNG, JPEG, WebP, GIF, BMP, TIFF
+    
+    Args:
+        file: Image file to compress
+        mode: Compression mode (lossless, balanced, aggressive)
+        target_format: Convert to format (png, jpeg, webp, gif)
+        quality: Custom quality 1-100 (optional)
+        max_width: Maximum width in pixels (optional)
+        max_height: Maximum height in pixels (optional)
+        
+    Returns:
+        Compressed image information
+    """
+    # Validate mode
+    valid_modes = ["lossless", "balanced", "aggressive"]
+    if mode not in valid_modes:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid mode. Must be one of: {', '.join(valid_modes)}"
+        )
+    
+    # Validate format if provided
+    valid_formats = ["png", "jpeg", "jpg", "webp", "gif", "bmp", "tiff"]
+    if target_format and target_format not in valid_formats:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid format. Must be one of: {', '.join(valid_formats)}"
+        )
+    
+    # Validate quality
+    if quality and (quality < 1 or quality > 100):
+        raise HTTPException(
+            status_code=400,
+            detail="Quality must be between 1 and 100"
+        )
+    
+    temp_input = f"/app/temp/upload_{file.filename}"
+    
+    try:
+        # Save uploaded file
+        with open(temp_input, "wb") as f:
+            content = await file.read()
+            f.write(content)
+        
+        # Detect format
+        detected_format = image_compression_service.detect_format(temp_input)
+        
+        # Compress image
+        result = image_compression_service.compress_image(
+            input_path=temp_input,
+            mode=ImageCompressionMode(mode),
+            target_format=ImageFormat(target_format) if target_format else None,
+            quality=quality,
+            max_width=max_width,
+            max_height=max_height,
+        )
+        
+        # Cleanup input file
+        os.remove(temp_input)
+        
+        file_id = Path(result["output_path"]).name
+        
+        return {
+            "success": True,
+            "message": f"Image compressed by {result['compression_ratio']}%",
+            "file_id": file_id,
+            "input_format": result["input_format"],
+            "output_format": result["output_format"],
+            "input_size_kb": result["input_size_kb"],
+            "output_size_kb": result["output_size_kb"],
+            "compression_ratio": result["compression_ratio"],
+            "dimensions": result["output_dimensions"],
+        }
+    except FileNotFoundError as e:
+        if os.path.exists(temp_input):
+            os.remove(temp_input)
+        raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as e:
+        if os.path.exists(temp_input):
+            os.remove(temp_input)
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        if os.path.exists(temp_input):
+            os.remove(temp_input)
+        raise HTTPException(status_code=500, detail=f"Compression error: {str(e)}")
+
+
+@router.post("/compress/image/detect")
+async def detect_image_format(file: UploadFile = File(...)):
+    """
+    Auto-detect image format and get metadata.
+    
+    Args:
+        file: Image file
+        
+    Returns:
+        Image information and detected format
+    """
+    temp_input = f"/app/temp/detect_{file.filename}"
+    
+    try:
+        # Save uploaded file temporarily
+        with open(temp_input, "wb") as f:
+            content = await file.read()
+            f.write(content)
+        
+        # Detect format
+        detected_format = image_compression_service.detect_format(temp_input)
+        
+        # Get full info
+        info = image_compression_service.get_image_info(temp_input)
+        
+        # Cleanup
+        os.remove(temp_input)
+        
+        return {
+            "success": True,
+            "detected_format": detected_format,
+            "width": info["width"],
+            "height": info["height"],
+            "size_kb": round(info["size_bytes"] / 1024, 2),
+            "mode": info["mode"],
+            "has_transparency": info["has_transparency"],
+        }
+    except Exception as e:
+        if os.path.exists(temp_input):
+            os.remove(temp_input)
+        raise HTTPException(status_code=500, detail=f"Detection error: {str(e)}")
+
+
+@router.post("/convert/image")
+async def convert_image_format(
+    file: UploadFile = File(...),
+    target_format: str = "webp",
+):
+    """
+    Convert image to a different format.
+    
+    Args:
+        file: Image file
+        target_format: Target format (png, jpeg, webp, gif)
+        
+    Returns:
+        Converted image information
+    """
+    valid_formats = ["png", "jpeg", "jpg", "webp", "gif"]
+    if target_format not in valid_formats:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid format. Must be one of: {', '.join(valid_formats)}"
+        )
+    
+    temp_input = f"/app/temp/convert_{file.filename}"
+    
+    try:
+        # Save uploaded file
+        with open(temp_input, "wb") as f:
+            content = await file.read()
+            f.write(content)
+        
+        # Convert
+        result = image_compression_service.convert_format(
+            input_path=temp_input,
+            target_format=ImageFormat(target_format),
+        )
+        
+        # Cleanup input file
+        os.remove(temp_input)
+        
+        file_id = Path(result["output_path"]).name
+        
+        return {
+            "success": True,
+            "message": f"Converted from {result['input_format']} to {result['output_format']}",
+            "file_id": file_id,
+            "input_format": result["input_format"],
+            "output_format": result["output_format"],
+            "output_size_kb": result["output_size_kb"],
+        }
+    except Exception as e:
+        if os.path.exists(temp_input):
+            os.remove(temp_input)
+        raise HTTPException(status_code=500, detail=f"Conversion error: {str(e)}")
