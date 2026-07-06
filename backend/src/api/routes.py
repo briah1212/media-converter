@@ -151,3 +151,148 @@ async def status():
             "mp4_to_mp3": "available",
         }
     }
+
+
+# Video Compression endpoints
+from src.services.video_compression_service import (
+    VideoCompressionService,
+    CompressionPreset,
+    VideoCodec,
+)
+
+compression_service = VideoCompressionService()
+
+
+class VideoCompressionRequest(BaseModel):
+    """Request model for video compression."""
+    preset: str = "balanced"  # high, balanced, high_compression, max_compression
+    codec: str = "h264"       # h264, h265, vp9
+    target_size_mb: float | None = None
+
+
+@router.post("/compress/video", response_model=ConversionResponse)
+async def compress_video(
+    file: UploadFile = File(...),
+    preset: str = "balanced",
+    codec: str = "h264",
+    target_size_mb: float | None = None,
+):
+    """
+    Compress and optimize a video file.
+    
+    Args:
+        file: Uploaded video file
+        preset: Compression preset (high, balanced, high_compression, max_compression)
+        codec: Video codec (h264, h265, vp9)
+        target_size_mb: Optional target file size in MB
+        
+    Returns:
+        Conversion response with compressed file information
+    """
+    # Validate inputs
+    valid_presets = ["high", "balanced", "high_compression", "max_compression"]
+    valid_codecs = ["h264", "h265", "vp9"]
+    
+    if preset not in valid_presets:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid preset. Must be one of: {', '.join(valid_presets)}"
+        )
+    
+    if codec not in valid_codecs:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid codec. Must be one of: {', '.join(valid_codecs)}"
+        )
+    
+    # Check file extension
+    allowed_extensions = [".mp4", ".avi", ".mov", ".mkv", ".webm", ".flv", ".wmv"]
+    file_ext = os.path.splitext(file.filename)[1].lower()
+    
+    if file_ext not in allowed_extensions:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported video format. Supported: {', '.join(allowed_extensions)}"
+        )
+    
+    temp_input = f"/app/temp/upload_{file.filename}"
+    
+    try:
+        # Save uploaded file
+        with open(temp_input, "wb") as f:
+            content = await file.read()
+            f.write(content)
+        
+        # Compress video
+        result = compression_service.compress_video(
+            input_path=temp_input,
+            preset=CompressionPreset(preset),
+            codec=VideoCodec(codec),
+            target_size_mb=target_size_mb,
+        )
+        
+        # Cleanup input file
+        os.remove(temp_input)
+        
+        file_id = Path(result["output_path"]).name
+        
+        return ConversionResponse(
+            success=True,
+            message=f"Video compressed successfully. Reduced by {result[compression_ratio]}%",
+            file_id=file_id,
+            duration=result.get("output_duration"),
+        )
+    except FileNotFoundError as e:
+        if os.path.exists(temp_input):
+            os.remove(temp_input)
+        raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as e:
+        if os.path.exists(temp_input):
+            os.remove(temp_input)
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        if os.path.exists(temp_input):
+            os.remove(temp_input)
+        raise HTTPException(status_code=500, detail=f"Compression error: {str(e)}")
+
+
+@router.post("/compress/estimate")
+async def estimate_compression(
+    file: UploadFile = File(...),
+    preset: str = "balanced",
+):
+    """
+    Get compression estimate without actually compressing.
+    
+    Args:
+        file: Uploaded video file
+        preset: Compression preset
+        
+    Returns:
+        Estimated compression results
+    """
+    temp_input = f"/app/temp/estimate_{file.filename}"
+    
+    try:
+        # Save uploaded file temporarily
+        with open(temp_input, "wb") as f:
+            content = await file.read()
+            f.write(content)
+        
+        # Get estimate
+        estimate = compression_service.get_compression_estimate(
+            input_path=temp_input,
+            preset=CompressionPreset(preset),
+        )
+        
+        # Cleanup
+        os.remove(temp_input)
+        
+        return {
+            "success": True,
+            **estimate
+        }
+    except Exception as e:
+        if os.path.exists(temp_input):
+            os.remove(temp_input)
+        raise HTTPException(status_code=500, detail=f"Estimate error: {str(e)}")
