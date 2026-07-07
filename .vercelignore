@@ -1,0 +1,37 @@
+# Backend files (not needed for frontend deployment)
+backend/
+*.md
+!README_VERCEL_DEPLOY.md
+
+# Documentation files
+PHASE*.md
+API_DOCUMENTATION.md
+CONVERTFAST*.md
+IMPLEMENTATION*.md
+PRIORITY_ROADMAP.md
+QUICKSTART.md
+EXECUTIVE_SUMMARY*.md
+DRAG_DROP_GUIDE.md
+ALL_PHASES_COMPLETE.md
+
+# Docker files (not needed for Vercel)
+docker-compose*.yml
+Dockerfile*
+nginx.conf*
+.env.production.example
+
+# Git
+.git/
+.gitignore
+
+# IDE
+.vscode/
+.idea/
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db

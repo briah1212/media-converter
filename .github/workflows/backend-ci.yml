@@ -1,0 +1,111 @@
+name: Backend CI
+
+on:
+  push:
+    branches: [ main, develop, feature/** ]
+    paths:
+      - 'backend/**'
+      - '.github/workflows/backend-ci.yml'
+  pull_request:
+    branches: [ main, develop ]
+    paths:
+      - 'backend/**'
+      - '.github/workflows/backend-ci.yml'
+
+jobs:
+  backend-tests:
+    runs-on: ubuntu-latest
+    
+    strategy:
+      matrix:
+        python-version: ['3.11']
+    
+    defaults:
+      run:
+        working-directory: backend
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ matrix.python-version }}
+        cache: 'pip'
+        cache-dependency-path: backend/requirements.txt
+    
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y ffmpeg poppler-utils
+    
+    - name: Cache pip dependencies
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-${{ matrix.python-version }}-${{ hashFiles('backend/requirements.txt') }}
+        restore-keys: |
+          ${{ runner.os }}-pip-${{ matrix.python-version }}-
+          ${{ runner.os }}-pip-
+    
+    - name: Install Python dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+    
+    - name: Install linting tools
+      run: |
+        pip install flake8 black mypy
+      continue-on-error: true
+    
+    - name: Lint with flake8
+      run: |
+        # Stop the build if there are Python syntax errors or undefined names
+        flake8 src --count --select=E9,F63,F7,F82 --show-source --statistics
+        # Exit-zero treats all errors as warnings. Increase line length to 100
+        flake8 src --count --exit-zero --max-complexity=10 --max-line-length=100 --statistics
+      continue-on-error: true
+    
+    - name: Check code formatting with black
+      run: |
+        black --check src
+      continue-on-error: true
+    
+    - name: Type check with mypy
+      run: |
+        mypy src --ignore-missing-imports
+      continue-on-error: true
+    
+    - name: Run pytest
+      run: |
+        pytest tests/ -v --tb=short
+      env:
+        PYTHONPATH: ${{ github.workspace }}/backend
+    
+    - name: Run pytest with coverage
+      run: |
+        pip install pytest-cov
+        pytest tests/ -v --cov=src --cov-report=term-missing --cov-report=xml
+      continue-on-error: true
+      env:
+        PYTHONPATH: ${{ github.workspace }}/backend
+    
+    - name: Upload coverage reports
+      uses: codecov/codecov-action@v4
+      if: always()
+      with:
+        files: ./backend/coverage.xml
+        flags: backend
+        name: backend-coverage
+      continue-on-error: true
+    
+    - name: Build summary
+      if: always()
+      run: |
+        echo "### Backend Test Summary 🧪" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "- **Python Version**: ${{ matrix.python-version }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **Branch**: ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **Commit**: ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **Status**: ${{ job.status }}" >> $GITHUB_STEP_SUMMARY

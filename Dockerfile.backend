@@ -1,21 +1,59 @@
-FROM python:3.11-slim
+FROM python:3.11-alpine AS base
 
-# Install system dependencies (ffmpeg for video/audio, poppler for PDF to images)
-RUN apt-get update && apt-get install -y \
-    ffmpeg \
-    poppler-utils \
-    && rm -rf /var/lib/apt/lists/*
-
+# Build stage - install dependencies
+FROM base AS builder
 WORKDIR /app
 
+# Install build dependencies and system tools
+RUN apk add --no-cache \
+    gcc \
+    musl-dev \
+    linux-headers \
+    ffmpeg \
+    poppler-utils
+
+# Copy and install Python dependencies
 COPY backend/requirements.txt .
+RUN pip install --no-cache-dir --user -r requirements.txt
 
-RUN pip install --no-cache-dir -r requirements.txt
+# Production stage - minimal runtime image
+FROM python:3.11-alpine AS runner
+WORKDIR /app
 
-COPY backend/src ./src
+# Install only runtime dependencies (ffmpeg, poppler)
+RUN apk add --no-cache \
+    ffmpeg \
+    poppler-utils \
+    libgcc \
+    libstdc++ \
+    wget
 
-RUN mkdir -p /app/temp /app/downloads
+# Create non-root user for security
+RUN addgroup -g 1001 -S appuser && \
+    adduser -u 1001 -S appuser -G appuser
+
+# Copy Python dependencies from builder
+COPY --from=builder /root/.local /home/appuser/.local
+
+# Copy application code
+COPY --chown=appuser:appuser backend/src ./src
+
+# Create required directories with proper permissions
+RUN mkdir -p /app/temp /app/downloads && \
+    chown -R appuser:appuser /app
+
+# Update PATH to include user-installed packages
+ENV PATH=/home/appuser/.local/bin:$PATH
+ENV PYTHONPATH=/app
+
+# Switch to non-root user
+USER appuser
 
 EXPOSE 8000
 
-CMD ["uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+# Health check endpoint
+HEALTHCHECK --interval=30s --timeout=3s --start-period=40s --retries=3 \
+  CMD wget --no-verbose --tries=1 --spider http://localhost:8000/health || exit 1
+
+# Production command (without --reload)
+CMD ["uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8000"]
