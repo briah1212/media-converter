@@ -834,3 +834,352 @@ async def batch_compress_target_size(
             if os.path.exists(temp_file):
                 os.remove(temp_file)
         raise HTTPException(status_code=500, detail=f"Batch compression error: {str(e)}")
+# Phase 2 - Audio API Endpoints
+
+from src.services.audio_service import AudioService
+audio_service = AudioService()
+
+@router.post("/audio/convert")
+async def convert_audio(
+    file: UploadFile = File(...),
+    output_format: str = Form(...),
+    bitrate: str = Form("192k"),
+    sample_rate: int = Form(None),
+    channels: int = Form(None)
+):
+    """
+    Convert audio to different format.
+    
+    Supported formats: mp3, aac, m4a, wav
+    """
+    valid_formats = ["mp3", "aac", "m4a", "wav"]
+    if output_format not in valid_formats:
+        raise HTTPException(status_code=400, detail="Format must be one of: " + ", ".join(valid_formats))
+    
+    temp_input = f"/app/temp/audio_{uuid.uuid4()}_{file.filename}"
+    
+    try:
+        with open(temp_input, "wb") as f:
+            content = await file.read()
+            f.write(content)
+        
+        result = audio_service.convert_audio(
+            input_path=temp_input,
+            output_format=output_format,
+            bitrate=bitrate if bitrate else None,
+            sample_rate=sample_rate if sample_rate else None,
+            channels=channels if channels else None
+        )
+        
+        os.remove(temp_input)
+        
+        if result["status"] == "error":
+            raise HTTPException(status_code=500, detail=result["error"])
+        
+        file_id = Path(result["output_path"]).name
+        
+        return {
+            "success": True,
+            "message": f"Converted from {result[input_format]} to {result[output_format]}",
+            "file_id": file_id,
+            "input_format": result["input_format"],
+            "output_format": result["output_format"],
+            "input_size_kb": result["input_size_kb"],
+            "output_size_kb": result["output_size_kb"],
+            "compression_ratio": result["compression_ratio"],
+            "duration": result["duration"],
+            "bitrate": result["bitrate"],
+            "sample_rate": result["sample_rate"],
+            "channels": result["channels"]
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        if os.path.exists(temp_input):
+            os.remove(temp_input)
+        raise HTTPException(status_code=500, detail=f"Audio conversion error: {str(e)}")
+
+
+@router.post("/audio/normalize")
+async def normalize_audio_volume(
+    file: UploadFile = File(...),
+    target_level: float = Form(-16.0)
+):
+    """
+    Normalize audio volume to target LUFS level.
+    
+    Default target: -16.0 LUFS (streaming standard)
+    """
+    temp_input = f"/app/temp/normalize_{uuid.uuid4()}_{file.filename}"
+    
+    try:
+        with open(temp_input, "wb") as f:
+            content = await file.read()
+            f.write(content)
+        
+        result = audio_service.normalize_audio(temp_input, target_level)
+        os.remove(temp_input)
+        
+        if result["status"] == "error":
+            raise HTTPException(status_code=500, detail=result["error"])
+        
+        file_id = Path(result["output_path"]).name
+        
+        return {
+            "success": True,
+            "message": "Audio normalized successfully",
+            "file_id": file_id,
+            "target_level": result["target_level"],
+            "input_size_kb": result["input_size_kb"],
+            "output_size_kb": result["output_size_kb"],
+            "duration": result["duration"]
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        if os.path.exists(temp_input):
+            os.remove(temp_input)
+        raise HTTPException(status_code=500, detail=f"Normalization error: {str(e)}")
+
+
+@router.post("/audio/extract-from-video")
+async def extract_audio(
+    file: UploadFile = File(...),
+    output_format: str = Form("mp3"),
+    bitrate: str = Form("192k")
+):
+    """
+    Extract audio track from video file.
+    
+    Supported formats: mp3, aac, m4a, wav
+    """
+    valid_formats = ["mp3", "aac", "m4a", "wav"]
+    if output_format not in valid_formats:
+        raise HTTPException(status_code=400, detail="Format must be one of: " + ", ".join(valid_formats))
+    
+    temp_input = f"/app/temp/video_{uuid.uuid4()}_{file.filename}"
+    
+    try:
+        with open(temp_input, "wb") as f:
+            content = await file.read()
+            f.write(content)
+        
+        result = audio_service.extract_audio_from_video(temp_input, output_format, bitrate)
+        os.remove(temp_input)
+        
+        if result["status"] == "error":
+            raise HTTPException(status_code=500, detail=result["error"])
+        
+        file_id = Path(result["output_path"]).name
+        
+        return {
+            "success": True,
+            "message": f"Audio extracted as {output_format}",
+            "file_id": file_id,
+            "output_format": result["output_format"],
+            "output_size_kb": result["output_size_kb"],
+            "duration": result["duration"],
+            "bitrate": result["bitrate"],
+            "sample_rate": result["sample_rate"],
+            "channels": result["channels"]
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        if os.path.exists(temp_input):
+            os.remove(temp_input)
+        raise HTTPException(status_code=500, detail=f"Audio extraction error: {str(e)}")
+
+
+@router.post("/audio/trim")
+async def trim_audio(
+    file: UploadFile = File(...),
+    start_time: float = Form(...),
+    end_time: float = Form(None),
+    duration: float = Form(None)
+):
+    """
+    Trim audio to specified time range.
+    
+    Specify either end_time or duration (not both).
+    """
+    if end_time is None and duration is None:
+        raise HTTPException(status_code=400, detail="Must specify either end_time or duration")
+    
+    temp_input = f"/app/temp/trim_{uuid.uuid4()}_{file.filename}"
+    
+    try:
+        with open(temp_input, "wb") as f:
+            content = await file.read()
+            f.write(content)
+        
+        result = audio_service.trim_audio(temp_input, start_time, end_time, duration)
+        os.remove(temp_input)
+        
+        if result["status"] == "error":
+            raise HTTPException(status_code=500, detail=result["error"])
+        
+        file_id = Path(result["output_path"]).name
+        
+        return {
+            "success": True,
+            "message": "Audio trimmed successfully",
+            "file_id": file_id,
+            "start_time": result["start_time"],
+            "end_time": result.get("end_time"),
+            "duration": result["duration"],
+            "output_size_kb": result["output_size_kb"],
+            "actual_duration": result["actual_duration"]
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        if os.path.exists(temp_input):
+            os.remove(temp_input)
+        raise HTTPException(status_code=500, detail=f"Audio trim error: {str(e)}")
+
+
+# Phase 2 - Video API Endpoints
+
+from src.services.video_compression_service import VideoCompressionService
+video_service = VideoCompressionService()
+
+@router.post("/video/trim")
+async def trim_video(
+    file: UploadFile = File(...),
+    start_time: float = Form(...),
+    end_time: float = Form(None),
+    duration: float = Form(None)
+):
+    """
+    Trim video to specified time range.
+    
+    Specify either end_time or duration (not both).
+    """
+    if end_time is None and duration is None:
+        raise HTTPException(status_code=400, detail="Must specify either end_time or duration")
+    
+    temp_input = f"/app/temp/video_trim_{uuid.uuid4()}_{file.filename}"
+    
+    try:
+        with open(temp_input, "wb") as f:
+            content = await file.read()
+            f.write(content)
+        
+        result = video_service.trim_video(temp_input, start_time, end_time, duration)
+        os.remove(temp_input)
+        
+        file_id = Path(result["output_path"]).name
+        
+        return {
+            "success": True,
+            "message": "Video trimmed successfully",
+            "file_id": file_id,
+            "start_time": result["start_time"],
+            "end_time": result.get("end_time"),
+            "duration": result["duration"],
+            "output_size_mb": result["output_size_mb"],
+            "actual_duration": result["actual_duration"]
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        if os.path.exists(temp_input):
+            os.remove(temp_input)
+        raise HTTPException(status_code=500, detail=f"Video trim error: {str(e)}")
+
+
+@router.post("/video/resize")
+async def resize_video(
+    file: UploadFile = File(...),
+    width: int = Form(None),
+    height: int = Form(None),
+    scale: float = Form(None)
+):
+    """
+    Resize video by dimensions or scale factor.
+    
+    Provide either (width/height) or scale.
+    """
+    if not width and not height and not scale:
+        raise HTTPException(status_code=400, detail="Must specify width, height, or scale")
+    
+    temp_input = f"/app/temp/video_resize_{uuid.uuid4()}_{file.filename}"
+    
+    try:
+        with open(temp_input, "wb") as f:
+            content = await file.read()
+            f.write(content)
+        
+        result = video_service.resize_video(temp_input, width, height, scale)
+        os.remove(temp_input)
+        
+        file_id = Path(result["output_path"]).name
+        
+        return {
+            "success": True,
+            "message": "Video resized successfully",
+            "file_id": file_id,
+            "input_resolution": result["input_resolution"],
+            "output_resolution": result["output_resolution"],
+            "input_size_mb": result["input_size_mb"],
+            "output_size_mb": result["output_size_mb"],
+            "duration": result["duration"]
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        if os.path.exists(temp_input):
+            os.remove(temp_input)
+        raise HTTPException(status_code=500, detail=f"Video resize error: {str(e)}")
+
+
+@router.post("/video/convert-format")
+async def convert_video_format(
+    file: UploadFile = File(...),
+    output_format: str = Form(...),
+    quality: str = Form("medium")
+):
+    """
+    Convert video to different format.
+    
+    Supported formats: mp4, webm, avi, mov, mkv
+    Quality: fast, medium, high
+    """
+    valid_formats = ["mp4", "webm", "avi", "mov", "mkv"]
+    if output_format not in valid_formats:
+        raise HTTPException(status_code=400, detail="Format must be one of: " + ", ".join(valid_formats))
+    
+    valid_quality = ["fast", "medium", "high"]
+    if quality not in valid_quality:
+        raise HTTPException(status_code=400, detail="Quality must be one of: " + ", ".join(valid_quality))
+    
+    temp_input = f"/app/temp/video_convert_{uuid.uuid4()}_{file.filename}"
+    
+    try:
+        with open(temp_input, "wb") as f:
+            content = await file.read()
+            f.write(content)
+        
+        result = video_service.convert_video_format(temp_input, output_format, quality)
+        os.remove(temp_input)
+        
+        file_id = Path(result["output_path"]).name
+        
+        return {
+            "success": True,
+            "message": f"Converted to {output_format}",
+            "file_id": file_id,
+            "input_format": result["input_format"],
+            "output_format": result["output_format"],
+            "input_size_mb": result["input_size_mb"],
+            "output_size_mb": result["output_size_mb"],
+            "duration": result["duration"],
+            "resolution": result["resolution"]
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        if os.path.exists(temp_input):
+            os.remove(temp_input)
+        raise HTTPException(status_code=500, detail=f"Video conversion error: {str(e)}")
