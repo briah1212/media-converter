@@ -373,3 +373,320 @@ class ImageCompressionService:
                 })
         
         return results
+    def compress_to_target_size(
+        self,
+        file_path: str,
+        target_size_kb: int,
+        output_format: str = "jpeg",
+        max_iterations: int = 15,
+        tolerance: float = 0.05,
+        resize_if_needed: bool = True
+    ) -> Dict:
+        """
+        Compress image to target file size using binary search.
+        
+        Args:
+            file_path: Input image path
+            target_size_kb: Target size in kilobytes
+            output_format: Output format (jpeg, png, webp)
+            max_iterations: Maximum optimization attempts
+            tolerance: Acceptable size difference (5% = 0.05)
+            resize_if_needed: If True, reduce dimensions if target cannot be met
+            
+        Returns:
+            Dict with output path, actual size, quality used, etc.
+        """
+        img = Image.open(file_path)
+        original_size = os.path.getsize(file_path) / 1024
+        
+        if output_format.lower() in ["jpeg", "jpg"] and img.mode not in ["RGB", "L"]:
+            img = img.convert("RGB")
+        
+        target_bytes = target_size_kb * 1024
+        quality_low = 10
+        quality_high = 95
+        best_output = None
+        best_size = float("inf")
+        best_quality = 85
+        
+        output_path = f"{self.output_dir}/{uuid.uuid4()}.{output_format}"
+        
+        for iteration in range(max_iterations):
+            quality = (quality_low + quality_high) // 2
+            temp_path = f"{self.output_dir}/temp_{uuid.uuid4()}.{output_format}"
+            
+            try:
+                if output_format.lower() in ["jpeg", "jpg"]:
+                    img.save(temp_path, "JPEG", quality=quality, optimize=True, progressive=True)
+                elif output_format.lower() == "png":
+                    img.save(temp_path, "PNG", optimize=True, compress_level=9)
+                elif output_format.lower() == "webp":
+                    img.save(temp_path, "WEBP", quality=quality, method=6)
+                else:
+                    img.save(temp_path, format=output_format.upper(), quality=quality)
+                
+                actual_size = os.path.getsize(temp_path)
+                size_diff = abs(actual_size - target_bytes) / target_bytes
+                
+                if size_diff <= tolerance:
+                    if best_output and os.path.exists(best_output):
+                        os.remove(best_output)
+                    os.rename(temp_path, output_path)
+                    
+                    return {
+                        "status": "success",
+                        "output_path": str(output_path),
+                        "original_size_kb": round(original_size, 2),
+                        "target_size_kb": target_size_kb,
+                        "actual_size_kb": round(actual_size / 1024, 2),
+                        "quality_used": quality,
+                        "iterations": iteration + 1,
+                        "compression_ratio": round(actual_size / (original_size * 1024), 3),
+                        "dimensions": f"{img.width}x{img.height}",
+                        "format": output_format.upper()
+                    }
+                
+                if abs(actual_size - target_bytes) < abs(best_size - target_bytes):
+                    if best_output and os.path.exists(best_output):
+                        os.remove(best_output)
+                    best_output = temp_path
+                    best_size = actual_size
+                    best_quality = quality
+                else:
+                    os.remove(temp_path)
+                
+                if actual_size > target_bytes:
+                    quality_high = quality - 1
+                else:
+                    quality_low = quality + 1
+                
+                if quality_low > quality_high:
+                    break
+                    
+            except Exception:
+                if os.path.exists(temp_path):
+                    os.remove(temp_path)
+                continue
+        
+        if resize_if_needed and best_size > target_bytes * 1.2:
+            scale_factor = 0.8
+            attempts = 0
+            max_resize_attempts = 5
+            
+            while attempts < max_resize_attempts and best_size > target_bytes * 1.1:
+                new_width = int(img.width * scale_factor)
+                new_height = int(img.height * scale_factor)
+                
+                if new_width < 100 or new_height < 100:
+                    break
+                
+                resized_img = img.resize((new_width, new_height), Image.LANCZOS)
+                temp_path = f"{self.output_dir}/temp_resized_{uuid.uuid4()}.{output_format}"
+                
+                if output_format.lower() in ["jpeg", "jpg"]:
+                    resized_img.save(temp_path, "JPEG", quality=best_quality, optimize=True, progressive=True)
+                elif output_format.lower() == "png":
+                    resized_img.save(temp_path, "PNG", optimize=True, compress_level=9)
+                elif output_format.lower() == "webp":
+                    resized_img.save(temp_path, "WEBP", quality=best_quality, method=6)
+                
+                actual_size = os.path.getsize(temp_path)
+                
+                if abs(actual_size - target_bytes) < abs(best_size - target_bytes):
+                    if best_output and os.path.exists(best_output):
+                        os.remove(best_output)
+                    best_output = temp_path
+                    best_size = actual_size
+                    img = resized_img
+                else:
+                    os.remove(temp_path)
+                    break
+                
+                attempts += 1
+                scale_factor *= 0.9
+        
+        if best_output and os.path.exists(best_output):
+            os.rename(best_output, output_path)
+        else:
+            img.save(output_path, format=output_format.upper(), quality=75, optimize=True)
+            best_size = os.path.getsize(output_path)
+        
+        return {
+            "status": "success" if abs(best_size - target_bytes) / target_bytes <= 0.15 else "best_effort",
+            "output_path": str(output_path),
+            "original_size_kb": round(original_size, 2),
+            "target_size_kb": target_size_kb,
+            "actual_size_kb": round(best_size / 1024, 2),
+            "quality_used": best_quality,
+            "iterations": max_iterations,
+            "compression_ratio": round(best_size / (original_size * 1024), 3),
+            "dimensions": f"{img.width}x{img.height}",
+            "format": output_format.upper(),
+            "note": "Resized to meet target" if resize_if_needed else "Best match"
+        }
+
+
+    def convert_heic(self, file_path: str, output_format: str = "jpeg", quality: int = 90) -> Dict:
+        """Convert HEIC/HEIF format to other formats."""
+        try:
+            from pillow_heif import register_heif_opener
+            register_heif_opener()
+        except ImportError:
+            return {"status": "error", "error": "pillow-heif not installed"}
+        
+        try:
+            img = Image.open(file_path)
+            original_size = os.path.getsize(file_path)
+            output_path = f"{self.output_dir}/{uuid.uuid4()}.{output_format}"
+            
+            if output_format.lower() in ["jpeg", "jpg"] and img.mode not in ["RGB", "L"]:
+                img = img.convert("RGB")
+            
+            if output_format.lower() in ["jpeg", "jpg"]:
+                img.save(output_path, "JPEG", quality=quality, optimize=True, progressive=True)
+            elif output_format.lower() == "png":
+                img.save(output_path, "PNG", optimize=True, compress_level=9)
+            elif output_format.lower() == "webp":
+                img.save(output_path, "WEBP", quality=quality, method=6)
+            else:
+                img.save(output_path, format=output_format.upper(), quality=quality)
+            
+            output_size = os.path.getsize(output_path)
+            
+            return {
+                "status": "success",
+                "output_path": str(output_path),
+                "original_format": "HEIC",
+                "output_format": output_format.upper(),
+                "original_size_kb": round(original_size / 1024, 2),
+                "output_size_kb": round(output_size / 1024, 2),
+                "compression_ratio": round(output_size / original_size, 3),
+                "dimensions": f"{img.width}x{img.height}",
+                "quality": quality
+            }
+        except Exception as e:
+            return {"status": "error", "error": str(e)}
+
+
+    def convert_to_heic(self, file_path: str, quality: int = 90) -> Dict:
+        """Convert image to HEIC/HEIF format."""
+        try:
+            from pillow_heif import register_heif_opener
+            register_heif_opener()
+        except ImportError:
+            return {"status": "error", "error": "pillow-heif not installed"}
+        
+        try:
+            img = Image.open(file_path)
+            original_size = os.path.getsize(file_path)
+            original_format = img.format
+            output_path = f"{self.output_dir}/{uuid.uuid4()}.heic"
+            
+            img.save(output_path, format="HEIF", quality=quality)
+            output_size = os.path.getsize(output_path)
+            
+            return {
+                "status": "success",
+                "output_path": str(output_path),
+                "original_format": original_format,
+                "output_format": "HEIC",
+                "original_size_kb": round(original_size / 1024, 2),
+                "output_size_kb": round(output_size / 1024, 2),
+                "compression_ratio": round(output_size / original_size, 3),
+                "dimensions": f"{img.width}x{img.height}",
+                "quality": quality
+            }
+        except Exception as e:
+            return {"status": "error", "error": str(e)}
+
+
+    def convert_to_avif(self, file_path: str, quality: int = 85, speed: int = 6) -> Dict:
+        """Convert image to AVIF format (next-gen)."""
+        try:
+            img = Image.open(file_path)
+            original_size = os.path.getsize(file_path)
+            original_format = img.format
+            output_path = f"{self.output_dir}/{uuid.uuid4()}.avif"
+            
+            try:
+                img.save(output_path, format="AVIF", quality=quality, speed=speed)
+            except Exception:
+                try:
+                    import pillow_avif
+                    img.save(output_path, format="AVIF", quality=quality, speed=speed)
+                except ImportError:
+                    return {"status": "error", "error": "AVIF support not available"}
+            
+            output_size = os.path.getsize(output_path)
+            
+            return {
+                "status": "success",
+                "output_path": str(output_path),
+                "original_format": original_format,
+                "output_format": "AVIF",
+                "original_size_kb": round(original_size / 1024, 2),
+                "output_size_kb": round(output_size / 1024, 2),
+                "compression_ratio": round(output_size / original_size, 3),
+                "dimensions": f"{img.width}x{img.height}",
+                "quality": quality,
+                "speed": speed
+            }
+        except Exception as e:
+            return {"status": "error", "error": str(e)}
+
+
+    def batch_compress_to_target_size(
+        self,
+        file_paths: list,
+        target_size_kb: int,
+        output_format: str = "jpeg",
+        max_workers: int = 4
+    ) -> Dict:
+        """Batch compress multiple images to target size."""
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        
+        results = []
+        successful = 0
+        failed = 0
+        
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            future_to_file = {
+                executor.submit(self.compress_to_target_size, fp, target_size_kb, output_format): fp
+                for fp in file_paths
+            }
+            
+            for future in as_completed(future_to_file):
+                file_path = future_to_file[future]
+                try:
+                    result = future.result()
+                    if result["status"] in ["success", "best_effort"]:
+                        successful += 1
+                    results.append({"file": os.path.basename(file_path), "result": result})
+                except Exception as e:
+                    failed += 1
+                    results.append({"file": os.path.basename(file_path), "result": {"status": "error", "error": str(e)}})
+        
+        return {
+            "status": "complete",
+            "total_files": len(file_paths),
+            "successful": successful,
+            "failed": failed,
+            "results": results
+        }
+
+
+    def create_zip_archive(self, file_paths: list, output_name: str = None) -> str:
+        """Create ZIP archive from list of files."""
+        import zipfile
+        
+        if output_name is None:
+            output_name = f"batch_{uuid.uuid4()}"
+        
+        zip_path = f"{self.output_dir}/{output_name}.zip"
+        
+        with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zipf:
+            for file_path in file_paths:
+                if os.path.exists(file_path):
+                    zipf.write(file_path, os.path.basename(file_path))
+        
+        return zip_path
