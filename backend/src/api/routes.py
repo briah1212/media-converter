@@ -1183,3 +1183,270 @@ async def convert_video_format(
         if os.path.exists(temp_input):
             os.remove(temp_input)
         raise HTTPException(status_code=500, detail=f"Video conversion error: {str(e)}")
+
+# Phase 3 - PDF API Endpoints
+
+from src.services.pdf_service import PDFService
+pdf_service = PDFService()
+
+@router.post("/pdf/merge")
+async def merge_pdfs(files: list[UploadFile] = File(...)):
+    """
+    Merge multiple PDF files into one.
+    
+    Upload 2 or more PDF files to merge them in order.
+    """
+    if len(files) < 2:
+        raise HTTPException(status_code=400, detail="Need at least 2 PDF files to merge")
+    
+    temp_files = []
+    
+    try:
+        # Save all uploaded PDFs
+        for file in files:
+            if not file.filename.lower().endswith(".pdf"):
+                raise HTTPException(status_code=400, detail=f"File {file.filename} is not a PDF")
+            
+            temp_path = f"/app/temp/pdf_{uuid.uuid4()}_{file.filename}"
+            with open(temp_path, "wb") as f:
+                content = await file.read()
+                f.write(content)
+            temp_files.append(temp_path)
+        
+        # Merge PDFs
+        result = pdf_service.merge_pdfs(temp_files)
+        
+        # Clean up input files
+        for temp_file in temp_files:
+            if os.path.exists(temp_file):
+                os.remove(temp_file)
+        
+        if result["status"] == "error":
+            raise HTTPException(status_code=500, detail=result["error"])
+        
+        file_id = Path(result["output_path"]).name
+        
+        return {
+            "success": True,
+            "message": f"Merged {len(files)} PDFs successfully",
+            "file_id": file_id,
+            "num_files_merged": result["num_files_merged"],
+            "total_pages": result["total_pages"],
+            "file_size_kb": result["file_size_kb"]
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        # Cleanup on error
+        for temp_file in temp_files:
+            if os.path.exists(temp_file):
+                os.remove(temp_file)
+        raise HTTPException(status_code=500, detail=f"PDF merge error: {str(e)}")
+
+
+@router.post("/pdf/split")
+async def split_pdf(
+    file: UploadFile = File(...),
+    pages: str = Form(None),
+    ranges: str = Form(None)
+):
+    """
+    Split PDF into separate files by pages or ranges.
+    
+    - pages: Comma-separated page numbers (e.g., "1,3,5")
+    - ranges: Comma-separated ranges (e.g., "1-3,5-7")
+    """
+    if not pages and not ranges:
+        raise HTTPException(status_code=400, detail="Must specify pages or ranges to extract")
+    
+    temp_input = f"/app/temp/split_{uuid.uuid4()}_{file.filename}"
+    
+    try:
+        with open(temp_input, "wb") as f:
+            content = await file.read()
+            f.write(content)
+        
+        # Parse pages
+        page_list = None
+        if pages:
+            page_list = [int(p.strip()) for p in pages.split(",")]
+        
+        # Parse ranges
+        range_list = None
+        if ranges:
+            range_list = []
+            for r in ranges.split(","):
+                start, end = map(int, r.split("-"))
+                range_list.append((start, end))
+        
+        result = pdf_service.split_pdf(temp_input, pages=page_list, ranges=range_list)
+        os.remove(temp_input)
+        
+        if result["status"] == "error":
+            raise HTTPException(status_code=500, detail=result["error"])
+        
+        # Get file IDs
+        output_file_ids = [Path(f["path"]).name for f in result["output_files"]]
+        
+        return {
+            "success": True,
+            "message": f"Split into {len(output_file_ids)} files",
+            "file_ids": output_file_ids,
+            "num_files_created": result["num_files_created"],
+            "details": result["output_files"]
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        if os.path.exists(temp_input):
+            os.remove(temp_input)
+        raise HTTPException(status_code=500, detail=f"PDF split error: {str(e)}")
+
+
+@router.post("/pdf/compress")
+async def compress_pdf(
+    file: UploadFile = File(...),
+    quality: str = Form("medium")
+):
+    """
+    Compress PDF file to reduce size.
+    
+    Quality: low, medium, high
+    """
+    valid_quality = ["low", "medium", "high"]
+    if quality not in valid_quality:
+        raise HTTPException(status_code=400, detail="Quality must be one of: " + ", ".join(valid_quality))
+    
+    temp_input = f"/app/temp/compress_{uuid.uuid4()}_{file.filename}"
+    
+    try:
+        with open(temp_input, "wb") as f:
+            content = await file.read()
+            f.write(content)
+        
+        result = pdf_service.compress_pdf(temp_input, quality)
+        os.remove(temp_input)
+        
+        if result["status"] == "error":
+            raise HTTPException(status_code=500, detail=result["error"])
+        
+        file_id = Path(result["output_path"]).name
+        
+        return {
+            "success": True,
+            "message": f"PDF compressed ({result[compression_ratio]}% reduction)",
+            "file_id": file_id,
+            "input_size_kb": result["input_size_kb"],
+            "output_size_kb": result["output_size_kb"],
+            "compression_ratio": result["compression_ratio"],
+            "quality": result["quality"]
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        if os.path.exists(temp_input):
+            os.remove(temp_input)
+        raise HTTPException(status_code=500, detail=f"PDF compression error: {str(e)}")
+
+
+@router.post("/pdf/from-images")
+async def images_to_pdf(files: list[UploadFile] = File(...)):
+    """
+    Convert multiple images to a single PDF file.
+    
+    Upload images in the order you want them in the PDF.
+    """
+    if not files:
+        raise HTTPException(status_code=400, detail="No images provided")
+    
+    temp_files = []
+    
+    try:
+        # Save all uploaded images
+        for file in files:
+            temp_path = f"/app/temp/img_{uuid.uuid4()}_{file.filename}"
+            with open(temp_path, "wb") as f:
+                content = await file.read()
+                f.write(content)
+            temp_files.append(temp_path)
+        
+        # Convert to PDF
+        result = pdf_service.images_to_pdf(temp_files)
+        
+        # Clean up input files
+        for temp_file in temp_files:
+            if os.path.exists(temp_file):
+                os.remove(temp_file)
+        
+        if result["status"] == "error":
+            raise HTTPException(status_code=500, detail=result["error"])
+        
+        file_id = Path(result["output_path"]).name
+        
+        return {
+            "success": True,
+            "message": f"Created PDF from {len(files)} images",
+            "file_id": file_id,
+            "num_images": result["num_images"],
+            "page_count": result["page_count"],
+            "file_size_kb": result["file_size_kb"]
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        for temp_file in temp_files:
+            if os.path.exists(temp_file):
+                os.remove(temp_file)
+        raise HTTPException(status_code=500, detail=f"Images to PDF error: {str(e)}")
+
+
+@router.post("/pdf/to-images")
+async def pdf_to_images(
+    file: UploadFile = File(...),
+    dpi: int = Form(200),
+    format: str = Form("png")
+):
+    """
+    Convert PDF pages to individual images.
+    
+    - dpi: Resolution (default: 200)
+    - format: png or jpg
+    """
+    valid_formats = ["png", "jpg"]
+    if format not in valid_formats:
+        raise HTTPException(status_code=400, detail="Format must be one of: " + ", ".join(valid_formats))
+    
+    if dpi < 72 or dpi > 600:
+        raise HTTPException(status_code=400, detail="DPI must be between 72 and 600")
+    
+    temp_input = f"/app/temp/pdf_to_img_{uuid.uuid4()}_{file.filename}"
+    
+    try:
+        with open(temp_input, "wb") as f:
+            content = await file.read()
+            f.write(content)
+        
+        result = pdf_service.pdf_to_images(temp_input, dpi, format)
+        os.remove(temp_input)
+        
+        if result["status"] == "error":
+            raise HTTPException(status_code=500, detail=result["error"])
+        
+        # Get file IDs
+        output_file_ids = [Path(f["path"]).name for f in result["output_files"]]
+        
+        return {
+            "success": True,
+            "message": f"Converted {result[num_pages]} pages to images",
+            "file_ids": output_file_ids,
+            "num_pages": result["num_pages"],
+            "dpi": result["dpi"],
+            "format": result["format"],
+            "files": result["output_files"]
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        if os.path.exists(temp_input):
+            os.remove(temp_input)
+        raise HTTPException(status_code=500, detail=f"PDF to images error: {str(e)}")
