@@ -1,10 +1,11 @@
 """API routes for media conversion."""
-from fastapi import APIRouter, HTTPException, UploadFile, File
+from fastapi import APIRouter, HTTPException, UploadFile, File, Form
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, HttpUrl
 from typing import Literal
 import os
 from pathlib import Path
+import uuid
 
 from src.services.youtube_service import YouTubeService
 from src.services.converter_service import ConverterService
@@ -503,3 +504,333 @@ async def convert_image_format(
         if os.path.exists(temp_input):
             os.remove(temp_input)
         raise HTTPException(status_code=500, detail=f"Conversion error: {str(e)}")
+
+
+@router.post("/compress/image/target-size")
+async def compress_image_target_size(
+    file: UploadFile = File(...),
+    target_size_kb: int = Form(...),
+    output_format: str = Form("jpeg"),
+    resize_if_needed: bool = Form(True)
+):
+    """
+    Compress image to specific target file size.
+    
+    Args:
+        file: Image file
+        target_size_kb: Target size in kilobytes (e.g., 10, 100, 1000)
+        output_format: Output format (jpeg, png, webp)
+        resize_if_needed: Allow resizing if target cannot be met with compression alone
+        
+    Returns:
+        Compressed image information
+    """
+    if target_size_kb < 1 or target_size_kb > 50000:
+        raise HTTPException(status_code=400, detail="Target size must be between 1kb and 50000kb")
+    
+    valid_formats = ["jpeg", "jpg", "png", "webp"]
+    if output_format.lower() not in valid_formats:
+        raise HTTPException(status_code=400, detail="Format must be one of: " + ", ".join(valid_formats))
+    
+    temp_input = f"/app/temp/target_{file.filename}"
+    
+    try:
+        with open(temp_input, "wb") as f:
+            content = await file.read()
+            f.write(content)
+        
+        result = image_compression_service.compress_to_target_size(
+            file_path=temp_input,
+            target_size_kb=target_size_kb,
+            output_format=output_format,
+            resize_if_needed=resize_if_needed
+        )
+        
+        os.remove(temp_input)
+        
+        file_id = Path(result["output_path"]).name
+        
+        return {
+            "success": True,
+            "message": f"Compressed to {result[actual_size_kb]}kb (target: {target_size_kb}kb)",
+            "file_id": file_id,
+            "status": result["status"],
+            "original_size_kb": result["original_size_kb"],
+            "target_size_kb": result["target_size_kb"],
+            "actual_size_kb": result["actual_size_kb"],
+            "quality_used": result["quality_used"],
+            "iterations": result["iterations"],
+            "compression_ratio": result["compression_ratio"],
+            "dimensions": result["dimensions"],
+            "format": result["format"],
+            "note": result.get("note", "")
+        }
+    except Exception as e:
+        if os.path.exists(temp_input):
+            os.remove(temp_input)
+        raise HTTPException(status_code=500, detail=f"Compression error: {str(e)}")
+
+
+@router.post("/convert/heic-to-jpg")
+async def convert_heic_to_jpg(
+    file: UploadFile = File(...),
+    quality: int = Form(90)
+):
+    """
+    Convert HEIC/HEIF image to JPG format.
+    
+    Args:
+        file: HEIC image file
+        quality: Output quality (1-100)
+        
+    Returns:
+        Converted image information
+    """
+    if not file.filename.lower().endswith((".heic", ".heif")):
+        raise HTTPException(status_code=400, detail="File must be HEIC/HEIF format")
+    
+    if quality < 1 or quality > 100:
+        raise HTTPException(status_code=400, detail="Quality must be between 1 and 100")
+    
+    temp_input = f"/app/temp/heic_{file.filename}"
+    
+    try:
+        with open(temp_input, "wb") as f:
+            content = await file.read()
+            f.write(content)
+        
+        result = image_compression_service.convert_heic(
+            file_path=temp_input,
+            output_format="jpeg",
+            quality=quality
+        )
+        
+        os.remove(temp_input)
+        
+        if result["status"] == "error":
+            raise HTTPException(status_code=500, detail=result["error"])
+        
+        file_id = Path(result["output_path"]).name
+        
+        return {
+            "success": True,
+            "message": "Successfully converted HEIC to JPG",
+            "file_id": file_id,
+            "original_format": result["original_format"],
+            "output_format": result["output_format"],
+            "original_size_kb": result["original_size_kb"],
+            "output_size_kb": result["output_size_kb"],
+            "compression_ratio": result["compression_ratio"],
+            "dimensions": result["dimensions"],
+            "quality": result["quality"]
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        if os.path.exists(temp_input):
+            os.remove(temp_input)
+        raise HTTPException(status_code=500, detail=f"Conversion error: {str(e)}")
+
+
+@router.post("/convert/to-heic")
+async def convert_to_heic(
+    file: UploadFile = File(...),
+    quality: int = Form(90)
+):
+    """
+    Convert image to HEIC/HEIF format.
+    
+    Args:
+        file: Image file (JPG, PNG, WEBP, etc.)
+        quality: Output quality (1-100)
+        
+    Returns:
+        Converted image information
+    """
+    if quality < 1 or quality > 100:
+        raise HTTPException(status_code=400, detail="Quality must be between 1 and 100")
+    
+    temp_input = f"/app/temp/to_heic_{file.filename}"
+    
+    try:
+        with open(temp_input, "wb") as f:
+            content = await file.read()
+            f.write(content)
+        
+        result = image_compression_service.convert_to_heic(
+            file_path=temp_input,
+            quality=quality
+        )
+        
+        os.remove(temp_input)
+        
+        if result["status"] == "error":
+            raise HTTPException(status_code=500, detail=result["error"])
+        
+        file_id = Path(result["output_path"]).name
+        
+        return {
+            "success": True,
+            "message": "Successfully converted to HEIC",
+            "file_id": file_id,
+            "original_format": result["original_format"],
+            "output_format": result["output_format"],
+            "original_size_kb": result["original_size_kb"],
+            "output_size_kb": result["output_size_kb"],
+            "compression_ratio": result["compression_ratio"],
+            "dimensions": result["dimensions"],
+            "quality": result["quality"]
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        if os.path.exists(temp_input):
+            os.remove(temp_input)
+        raise HTTPException(status_code=500, detail=f"Conversion error: {str(e)}")
+
+
+@router.post("/convert/to-avif")
+async def convert_to_avif(
+    file: UploadFile = File(...),
+    quality: int = Form(85),
+    speed: int = Form(6)
+):
+    """
+    Convert image to AVIF format (next-gen format with superior compression).
+    
+    Args:
+        file: Image file
+        quality: Output quality (1-100)
+        speed: Encoding speed (0=slowest/best, 10=fastest)
+        
+    Returns:
+        Converted image information
+    """
+    if quality < 1 or quality > 100:
+        raise HTTPException(status_code=400, detail="Quality must be between 1 and 100")
+    
+    if speed < 0 or speed > 10:
+        raise HTTPException(status_code=400, detail="Speed must be between 0 and 10")
+    
+    temp_input = f"/app/temp/to_avif_{file.filename}"
+    
+    try:
+        with open(temp_input, "wb") as f:
+            content = await file.read()
+            f.write(content)
+        
+        result = image_compression_service.convert_to_avif(
+            file_path=temp_input,
+            quality=quality,
+            speed=speed
+        )
+        
+        os.remove(temp_input)
+        
+        if result["status"] == "error":
+            raise HTTPException(status_code=500, detail=result["error"])
+        
+        file_id = Path(result["output_path"]).name
+        
+        return {
+            "success": True,
+            "message": "Successfully converted to AVIF",
+            "file_id": file_id,
+            "original_format": result["original_format"],
+            "output_format": result["output_format"],
+            "original_size_kb": result["original_size_kb"],
+            "output_size_kb": result["output_size_kb"],
+            "compression_ratio": result["compression_ratio"],
+            "dimensions": result["dimensions"],
+            "quality": result["quality"],
+            "speed": result["speed"]
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        if os.path.exists(temp_input):
+            os.remove(temp_input)
+        raise HTTPException(status_code=500, detail=f"Conversion error: {str(e)}")
+
+
+@router.post("/batch/compress/target-size")
+async def batch_compress_target_size(
+    files: list[UploadFile] = File(...),
+    target_size_kb: int = Form(...),
+    output_format: str = Form("jpeg"),
+    create_zip: bool = Form(True)
+):
+    """
+    Batch compress multiple images to target file size.
+    
+    Args:
+        files: List of image files
+        target_size_kb: Target size for each image in kilobytes
+        output_format: Output format (jpeg, png, webp)
+        create_zip: If True, return ZIP archive of all results
+        
+    Returns:
+        Batch compression results
+    """
+    if not files:
+        raise HTTPException(status_code=400, detail="No files provided")
+    
+    if len(files) > 100:
+        raise HTTPException(status_code=400, detail="Maximum 100 files per batch")
+    
+    if target_size_kb < 1 or target_size_kb > 50000:
+        raise HTTPException(status_code=400, detail="Target size must be between 1kb and 50000kb")
+    
+    temp_files = []
+    
+    try:
+        # Save all uploaded files
+        for file in files:
+            temp_path = f"/app/temp/batch_{uuid.uuid4()}_{file.filename}"
+            with open(temp_path, "wb") as f:
+                content = await file.read()
+                f.write(content)
+            temp_files.append(temp_path)
+        
+        # Batch compress
+        result = image_compression_service.batch_compress_to_target_size(
+            file_paths=temp_files,
+            target_size_kb=target_size_kb,
+            output_format=output_format,
+            max_workers=4
+        )
+        
+        # Clean up input files
+        for temp_file in temp_files:
+            if os.path.exists(temp_file):
+                os.remove(temp_file)
+        
+        # Create ZIP if requested
+        zip_file_id = None
+        if create_zip and result["successful"] > 0:
+            output_files = [
+                r["result"]["output_path"]
+                for r in result["results"]
+                if r["result"]["status"] in ["success", "best_effort"]
+            ]
+            zip_path = image_compression_service.create_zip_archive(
+                file_paths=output_files,
+                output_name=f"batch_compressed_{target_size_kb}kb"
+            )
+            zip_file_id = Path(zip_path).name
+        
+        return {
+            "success": True,
+            "message": f"Batch compression complete: {result[successful]}/{result[total_files]} successful",
+            "total_files": result["total_files"],
+            "successful": result["successful"],
+            "failed": result["failed"],
+            "zip_file_id": zip_file_id,
+            "results": result["results"]
+        }
+    except Exception as e:
+        # Cleanup on error
+        for temp_file in temp_files:
+            if os.path.exists(temp_file):
+                os.remove(temp_file)
+        raise HTTPException(status_code=500, detail=f"Batch compression error: {str(e)}")
