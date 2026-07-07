@@ -348,3 +348,124 @@ class VideoCompressionService:
             "duration": input_info.get("duration", 0),
             "preset": preset.value,
         }
+
+    def trim_video(self, input_path: str, start_time: float, end_time: Optional[float] = None, duration: Optional[float] = None) -> Dict:
+        """Trim video to specified time range."""
+        input_file = Path(input_path)
+        if not input_file.exists():
+            raise FileNotFoundError(f"Input file not found: {input_path}")
+        
+        if end_time is None and duration is None:
+            raise ValueError("Must specify either end_time or duration")
+        
+        output_path = self.output_dir / f"trimmed_{uuid.uuid4()}.mp4"
+        cmd = ["ffmpeg", "-i", str(input_path), "-ss", str(start_time)]
+        
+        if duration:
+            cmd.extend(["-t", str(duration)])
+        elif end_time:
+            cmd.extend(["-to", str(end_time)])
+        
+        cmd.extend(["-c", "copy", "-y", str(output_path)])
+        
+        try:
+            subprocess.run(cmd, check=True, capture_output=True, stderr=subprocess.PIPE)
+            output_info = self._get_video_info(str(output_path))
+            output_size = output_path.stat().st_size
+            
+            return {
+                "success": True,
+                "output_path": str(output_path),
+                "start_time": start_time,
+                "end_time": end_time,
+                "duration": duration or (end_time - start_time if end_time else 0),
+                "output_size_mb": round(output_size / (1024 * 1024), 2),
+                "actual_duration": output_info.get("duration", 0)
+            }
+        except subprocess.CalledProcessError as e:
+            raise ValueError(f"Trim failed: {e.stderr.decode()}")
+
+    def resize_video(self, input_path: str, width: Optional[int] = None, height: Optional[int] = None, scale: Optional[float] = None) -> Dict:
+        """Resize video to specified dimensions or scale."""
+        input_file = Path(input_path)
+        if not input_file.exists():
+            raise FileNotFoundError(f"Input file not found: {input_path}")
+        
+        input_info = self._get_video_info(input_path)
+        
+        if scale:
+            orig_width = int(input_info.get("width", 1920))
+            orig_height = int(input_info.get("height", 1080))
+            width = int(orig_width * scale)
+            height = int(orig_height * scale)
+        elif width and not height:
+            orig_width = int(input_info.get("width", 1920))
+            orig_height = int(input_info.get("height", 1080))
+            height = int((width / orig_width) * orig_height)
+        elif height and not width:
+            orig_width = int(input_info.get("width", 1920))
+            orig_height = int(input_info.get("height", 1080))
+            width = int((height / orig_height) * orig_width)
+        
+        if not width or not height:
+            raise ValueError("Must specify width, height, or scale")
+        
+        width = width - (width % 2)
+        height = height - (height % 2)
+        
+        output_path = self.output_dir / f"resized_{uuid.uuid4()}.mp4"
+        cmd = ["ffmpeg", "-i", str(input_path), "-vf", f"scale={width}:{height}", "-c:a", "copy", "-y", str(output_path)]
+        
+        try:
+            subprocess.run(cmd, check=True, capture_output=True, stderr=subprocess.PIPE)
+            output_info = self._get_video_info(str(output_path))
+            output_size = output_path.stat().st_size
+            input_size = input_file.stat().st_size
+            
+            return {
+                "success": True,
+                "output_path": str(output_path),
+                "input_resolution": f"{input_info.get(width)}x{input_info.get(height)}",
+                "output_resolution": f"{width}x{height}",
+                "input_size_mb": round(input_size / (1024 * 1024), 2),
+                "output_size_mb": round(output_size / (1024 * 1024), 2),
+                "duration": output_info.get("duration", 0)
+            }
+        except subprocess.CalledProcessError as e:
+            raise ValueError(f"Resize failed: {e.stderr.decode()}")
+
+    def convert_video_format(self, input_path: str, output_format: str, quality: str = "medium") -> Dict:
+        """Convert video to different format."""
+        input_file = Path(input_path)
+        if not input_file.exists():
+            raise FileNotFoundError(f"Input file not found: {input_path}")
+        
+        output_path = self.output_dir / f"converted_{uuid.uuid4()}.{output_format}"
+        
+        if output_format == "mp4":
+            codec_params = ["-c:v", "libx264", "-preset", quality]
+        elif output_format == "webm":
+            codec_params = ["-c:v", "libvpx-vp9", "-b:v", "0", "-crf", "30"]
+        else:
+            codec_params = ["-c:v", "libx264", "-preset", quality]
+        
+        cmd = ["ffmpeg", "-i", str(input_path)] + codec_params + ["-c:a", "aac", "-y", str(output_path)]
+        
+        try:
+            subprocess.run(cmd, check=True, capture_output=True, stderr=subprocess.PIPE)
+            output_info = self._get_video_info(str(output_path))
+            output_size = output_path.stat().st_size
+            input_size = input_file.stat().st_size
+            
+            return {
+                "success": True,
+                "output_path": str(output_path),
+                "input_format": input_file.suffix[1:],
+                "output_format": output_format,
+                "input_size_mb": round(input_size / (1024 * 1024), 2),
+                "output_size_mb": round(output_size / (1024 * 1024), 2),
+                "duration": output_info.get("duration", 0),
+                "resolution": f"{output_info.get(width)}x{output_info.get(height)}"
+            }
+        except subprocess.CalledProcessError as e:
+            raise ValueError(f"Format conversion failed: {e.stderr.decode()}")
