@@ -1,20 +1,19 @@
 FROM python:3.11-slim
 
-# Install ffmpeg and other dependencies
+# Install system dependencies (ffmpeg for video/audio, poppler for PDF to images)
 RUN apt-get update && apt-get install -y \
     ffmpeg \
+    poppler-utils \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-# Copy requirements and install Python dependencies
 COPY backend/requirements.txt .
+
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy application code
 COPY backend/src ./src
 
-# Create directories for temporary files
 RUN mkdir -p /app/temp /app/downloads
 
 EXPOSE 8000
