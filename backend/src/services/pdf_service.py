@@ -203,7 +203,7 @@ class PDFService:
             
             input_size = os.path.getsize(pdf_path)
             output_size = os.path.getsize(output_path)
-            compression_ratio = round((1 - output_size / input_size) * 100, 2)
+            compression_ratio = round((1 - output_size / input_size) * 100, 2) if input_size > 0 else 0
             
             return {
                 "status": "success",

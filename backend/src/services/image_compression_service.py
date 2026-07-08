@@ -171,7 +171,7 @@ class ImageCompressionService:
             # Calculate compression ratio
             input_size = input_info['size_bytes']
             output_size = output_info['size_bytes']
-            compression_ratio = ((input_size - output_size) / input_size) * 100
+            compression_ratio = ((input_size - output_size) / input_size) * 100 if input_size > 0 else 0
             
             return {
                 "success": True,
@@ -197,12 +197,12 @@ class ImageCompressionService:
         width, height = img.size
         
         if max_width and width > max_width:
-            ratio = max_width / width
+            ratio = max_width / width if width > 0 else 1
             height = int(height * ratio)
             width = max_width
         
         if max_height and height > max_height:
-            ratio = max_height / height
+            ratio = max_height / height if height > 0 else 1
             width = int(width * ratio)
             height = max_height
         
@@ -396,6 +396,13 @@ class ImageCompressionService:
         Returns:
             Dict with output path, actual size, quality used, etc.
         """
+        # Validate inputs
+        if target_size_kb <= 0:
+            raise ValueError("Target size must be greater than 0")
+        
+        if not os.path.exists(file_path):
+            raise FileNotFoundError(f"Input file not found: {file_path}")
+        
         img = Image.open(file_path)
         original_size = os.path.getsize(file_path) / 1024
         

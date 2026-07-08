@@ -81,6 +81,9 @@ async def convert_mp4_to_mp3(file: UploadFile = File(...)):
             detail="Only MP4 files are supported"
         )
     
+    temp_input = None
+
+    
     try:
         # Save uploaded file temporarily
         temp_input = f"/app/temp/upload_{file.filename}"
@@ -783,6 +786,9 @@ async def batch_compress_target_size(
     
     temp_files = []
     
+    temp_files = []
+
+    
     try:
         # Save all uploaded files
         for file in files:
@@ -1201,6 +1207,9 @@ async def merge_pdfs(files: list[UploadFile] = File(...)):
     
     temp_files = []
     
+    temp_files = []
+
+    
     try:
         # Save all uploaded PDFs
         for file in files:
@@ -1360,6 +1369,9 @@ async def images_to_pdf(files: list[UploadFile] = File(...)):
         raise HTTPException(status_code=400, detail="No images provided")
     
     temp_files = []
+    
+    temp_files = []
+
     
     try:
         # Save all uploaded images

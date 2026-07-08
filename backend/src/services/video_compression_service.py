@@ -264,13 +264,16 @@ class VideoCompressionService:
         
         try:
             # Run pass 1
-            subprocess.run(cmd_pass1, capture_output=True, check=True)
+            subprocess.run(cmd_pass1, capture_output=True, check=True, timeout=3600)
             # Run pass 2
-            subprocess.run(cmd_pass2, capture_output=True, text=True, check=True)
+            subprocess.run(cmd_pass2, capture_output=True, text=True, check=True, timeout=3600)
             
             # Cleanup pass files
-            for f in Path(".").glob("ffmpeg2pass*"):
-                f.unlink()
+            try:
+                for f in Path(".").glob("ffmpeg2pass*"):
+                    f.unlink()
+            except Exception:
+                pass  # Ignore cleanup errors
             
             return {"success": True}
         except subprocess.CalledProcessError as e:
@@ -292,29 +295,36 @@ class VideoCompressionService:
                 cmd,
                 capture_output=True,
                 text=True,
-                check=True
+                check=True,
+                timeout=30
             )
             
             data = json.loads(result.stdout)
             format_info = data.get("format", {})
             
-            # Get video stream info for width/height
+            # Extract video stream info
             video_stream = None
             for stream in data.get("streams", []):
                 if stream.get("codec_type") == "video":
                     video_stream = stream
                     break
             
+            width = 0
+            height = 0
+            if video_stream:
+                width = int(video_stream.get("width", 0))
+                height = int(video_stream.get("height", 0))
+            
             return {
                 "duration": float(format_info.get("duration", 0)),
                 "size": int(format_info.get("size", 0)),
                 "bit_rate": int(format_info.get("bit_rate", 0)),
                 "format_name": format_info.get("format_name", "unknown"),
-                "width": int(video_stream.get("width", 1920)) if video_stream else 1920,
-                "height": int(video_stream.get("height", 1080)) if video_stream else 1080,
+                "width": width,
+                "height": height,
             }
         except Exception as e:
-            return {"duration": 0, "size": 0, "bit_rate": 0, "width": 1920, "height": 1080}
+            return {"duration": 0, "size": 0, "bit_rate": 0, "width": 0, "height": 0}
     
     def get_compression_estimate(
         self,
@@ -378,7 +388,7 @@ class VideoCompressionService:
         cmd.extend(["-c", "copy", "-y", str(output_path)])
         
         try:
-            subprocess.run(cmd, check=True, capture_output=True)
+            subprocess.run(cmd, check=True, capture_output=True, timeout=300)
             output_info = self._get_video_info(str(output_path))
             output_size = output_path.stat().st_size
             
@@ -427,7 +437,7 @@ class VideoCompressionService:
         cmd = ["ffmpeg", "-i", str(input_path), "-vf", f"scale={width}:{height}", "-c:a", "copy", "-y", str(output_path)]
         
         try:
-            subprocess.run(cmd, check=True, capture_output=True)
+            subprocess.run(cmd, check=True, capture_output=True, timeout=300)
             output_info = self._get_video_info(str(output_path))
             output_size = output_path.stat().st_size
             input_size = input_file.stat().st_size
@@ -463,7 +473,7 @@ class VideoCompressionService:
         cmd = ["ffmpeg", "-i", str(input_path)] + codec_params + ["-c:a", "aac", "-y", str(output_path)]
         
         try:
-            subprocess.run(cmd, check=True, capture_output=True)
+            subprocess.run(cmd, check=True, capture_output=True, timeout=300)
             output_info = self._get_video_info(str(output_path))
             output_size = output_path.stat().st_size
             input_size = input_file.stat().st_size

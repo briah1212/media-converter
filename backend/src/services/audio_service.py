@@ -32,7 +32,7 @@ class AudioService:
                 "-show_streams",
                 file_path
             ]
-            result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+            result = subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=300)
             
             import json
             data = json.loads(result.stdout)
@@ -119,7 +119,7 @@ class AudioService:
         cmd.extend(["-y", output_path])
         
         try:
-            subprocess.run(cmd, check=True, capture_output=True)
+            subprocess.run(cmd, check=True, capture_output=True, timeout=300)
             
             output_info = self.get_audio_info(output_path)
             output_size = os.path.getsize(output_path)
@@ -173,7 +173,7 @@ class AudioService:
         ]
         
         try:
-            subprocess.run(cmd, check=True, capture_output=True)
+            subprocess.run(cmd, check=True, capture_output=True, timeout=300)
             
             output_size = os.path.getsize(output_path)
             
@@ -225,7 +225,7 @@ class AudioService:
         cmd.extend(["-y", output_path])
         
         try:
-            subprocess.run(cmd, check=True, capture_output=True)
+            subprocess.run(cmd, check=True, capture_output=True, timeout=300)
             
             audio_info = self.get_audio_info(output_path)
             output_size = os.path.getsize(output_path)
@@ -284,7 +284,7 @@ class AudioService:
         cmd.extend(["-c", "copy", "-y", output_path])
         
         try:
-            subprocess.run(cmd, check=True, capture_output=True)
+            subprocess.run(cmd, check=True, capture_output=True, timeout=300)
             
             audio_info = self.get_audio_info(output_path)
             output_size = os.path.getsize(output_path)
