@@ -280,10 +280,10 @@ export default function VideoCompress() {
               color: '#333',
             }}>
               <p style={{ marginBottom: '0.5rem' }}>
-                <strong>Input Size:</strong> {(result.input_size / 1024 / 1024).toFixed(2)} MB
+                <strong>Input Size:</strong> {result.input_size != null && !isNaN(result.input_size) ? (result.input_size / 1024 / 1024).toFixed(2) : 'N/A'} MB
               </p>
               <p style={{ marginBottom: '0.5rem' }}>
-                <strong>Output Size:</strong> {(result.output_size / 1024 / 1024).toFixed(2)} MB
+                <strong>Output Size:</strong> {result.output_size != null && !isNaN(result.output_size) ? (result.output_size / 1024 / 1024).toFixed(2) : 'N/A'} MB
               </p>
               <p style={{ marginBottom: '0.5rem' }}>
                 <strong>Compression Ratio:</strong> {calculateCompressionRatio()}% reduction
