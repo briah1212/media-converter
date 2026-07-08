@@ -239,7 +239,7 @@ async def compress_video(
         
         return ConversionResponse(
             success=True,
-            message=f"Video compressed successfully. Reduced by {result[compression_ratio]}%",
+            message=f"Video compressed successfully. Reduced by {result['compression_ratio']}%",
             file_id=file_id,
             duration=result.get("output_duration"),
         )
@@ -552,7 +552,7 @@ async def compress_image_target_size(
         
         return {
             "success": True,
-            "message": f"Compressed to {result[actual_size_kb]}kb (target: {target_size_kb}kb)",
+            "message": f"Compressed to {result['actual_size_kb']}kb (target: {target_size_kb}kb)",
             "file_id": file_id,
             "status": result["status"],
             "original_size_kb": result["original_size_kb"],
@@ -821,7 +821,7 @@ async def batch_compress_target_size(
         
         return {
             "success": True,
-            "message": f"Batch compression complete: {result[successful]}/{result[total_files]} successful",
+            "message": f"Batch compression complete: {result['successful']}/{result['total_files']} successful",
             "total_files": result["total_files"],
             "successful": result["successful"],
             "failed": result["failed"],
@@ -880,7 +880,7 @@ async def convert_audio(
         
         return {
             "success": True,
-            "message": f"Converted from {result[input_format]} to {result[output_format]}",
+            "message": f"Converted from {result['input_format']} to {result['output_format']}",
             "file_id": file_id,
             "input_format": result["input_format"],
             "output_format": result["output_format"],
@@ -1334,7 +1334,7 @@ async def compress_pdf(
         
         return {
             "success": True,
-            "message": f"PDF compressed ({result[compression_ratio]}% reduction)",
+            "message": f"PDF compressed ({result['compression_ratio']}% reduction)",
             "file_id": file_id,
             "input_size_kb": result["input_size_kb"],
             "output_size_kb": result["output_size_kb"],
@@ -1437,7 +1437,7 @@ async def pdf_to_images(
         
         return {
             "success": True,
-            "message": f"Converted {result[num_pages]} pages to images",
+            "message": f"Converted {result['num_pages']} pages to images",
             "file_ids": output_file_ids,
             "num_pages": result["num_pages"],
             "dpi": result["dpi"],
