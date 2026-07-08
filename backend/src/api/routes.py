@@ -5,6 +5,8 @@ from pydantic import BaseModel, HttpUrl
 from typing import Literal
 import os
 from pathlib import Path
+import subprocess
+import json
 import uuid
 
 from src.services.youtube_service import YouTubeService
