@@ -5,12 +5,11 @@ import Link from 'next/link'
 
 interface CompressResult {
   file_id: string
-  input_size: number
-  output_size: number
+  input_size_kb: number      // KB not bytes
+  output_size_kb: number     // KB not bytes
   compression_ratio: number
-  width: number
-  height: number
-  format: string
+  dimensions: string         // "800x600" format
+  output_format: string      // not just "format"
 }
 
 export default function ImageCompress() {
@@ -255,19 +254,22 @@ export default function ImageCompress() {
             
             <div style={{ marginBottom: '1rem' }}>
               <div style={{ marginBottom: '0.5rem', color: '#333' }}>
-                <strong>Input Size:</strong> {formatFileSize(result.input_size)}
+                <strong>Input Size:</strong> {(result.input_size_kb / 1024).toFixed(2)} MB
               </div>
               <div style={{ marginBottom: '0.5rem', color: '#333' }}>
-                <strong>Output Size:</strong> {formatFileSize(result.output_size)}
+                <strong>Output Size:</strong> {(result.output_size_kb / 1024).toFixed(2)} MB
               </div>
               <div style={{ marginBottom: '0.5rem', color: '#333' }}>
                 <strong>Compression Ratio:</strong> {result.compression_ratio.toFixed(2)}%
               </div>
               <div style={{ marginBottom: '0.5rem', color: '#333' }}>
-                <strong>Dimensions:</strong> {result.width} × {result.height}
+                <strong>Dimensions:</strong> {(() => {
+                  const [width, height] = (result.dimensions || '×').split('x')
+                  return `${width}×${height}`
+                })()}
               </div>
               <div style={{ marginBottom: '0.5rem', color: '#333' }}>
-                <strong>Format:</strong> {result.format?.toUpperCase() || "N/A"}
+                <strong>Format:</strong> {result.output_format?.toUpperCase() || "N/A"}
               </div>
             </div>
 

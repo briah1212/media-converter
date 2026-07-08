@@ -3,11 +3,25 @@
 import { useState } from 'react'
 import Link from 'next/link'
 
+interface AVIFConversionResult {
+  success: boolean
+  message: string
+  file_id: string
+  original_format: string
+  output_format: string
+  original_size_kb: number
+  output_size_kb: number
+  compression_ratio: number
+  dimensions: string
+  quality: number
+  speed: number
+}
+
 export default function ConvertToAVIF() {
   const [file, setFile] = useState<File | null>(null)
   const [quality, setQuality] = useState(85)
   const [loading, setLoading] = useState(false)
-  const [result, setResult] = useState<any>(null)
+  const [result, setResult] = useState<AVIFConversionResult | null>(null)
   const [error, setError] = useState('')
 
   const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
@@ -50,8 +64,8 @@ export default function ConvertToAVIF() {
     }
   }
 
-  const formatBytes = (bytes: number) => {
-    return (bytes / 1024 / 1024).toFixed(2)
+  const formatKBtoMB = (kb: number) => {
+    return (kb / 1024).toFixed(2)
   }
 
   return (
@@ -223,22 +237,23 @@ export default function ConvertToAVIF() {
               fontSize: '0.875rem',
             }}>
               <p style={{ marginBottom: '0.25rem' }}>
-                <strong>Format:</strong> {result.original_format?.toUpperCase() || 'IMAGE'} → {result.output_format?.toUpperCase() || 'AVIF'}
+                <strong>Format:</strong> {result.original_format?.toUpperCase()} → {result.output_format?.toUpperCase()}
               </p>
               <p style={{ marginBottom: '0.25rem' }}>
-                <strong>Original size:</strong> {formatBytes(result.original_size || 0)} MB
+                <strong>Dimensions:</strong> {result.dimensions}
               </p>
               <p style={{ marginBottom: '0.25rem' }}>
-                <strong>Output size:</strong> {formatBytes(result.output_size || 0)} MB
+                <strong>Original size:</strong> {formatKBtoMB(result.original_size_kb)} MB
               </p>
-              {result.size_savings_percent !== undefined && (
-                <p style={{ 
-                  color: '#16a34a',
-                  fontWeight: '600',
-                }}>
-                  <strong>Savings:</strong> {result.size_savings_percent.toFixed(1)}% smaller
-                </p>
-              )}
+              <p style={{ marginBottom: '0.25rem' }}>
+                <strong>Output size:</strong> {formatKBtoMB(result.output_size_kb)} MB
+              </p>
+              <p style={{ 
+                color: '#16a34a',
+                fontWeight: '600',
+              }}>
+                <strong>Compression:</strong> {result.compression_ratio.toFixed(1)}% reduction
+              </p>
             </div>
             <button
               onClick={handleDownload}

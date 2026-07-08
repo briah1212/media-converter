@@ -3,11 +3,25 @@
 import { useState } from 'react'
 import Link from 'next/link'
 
+// TypeScript interface matching backend response structure
+interface ConvertToHeicResponse {
+  success: boolean
+  message: string
+  file_id: string
+  original_format: string
+  output_format: string
+  original_size_kb: number   // KB not bytes!
+  output_size_kb: number     // KB not bytes!
+  compression_ratio: number
+  dimensions: string         // "800x600" format
+  quality: number
+}
+
 export default function ConvertToHEIC() {
   const [file, setFile] = useState<File | null>(null)
   const [quality, setQuality] = useState(90)
   const [loading, setLoading] = useState(false)
-  const [result, setResult] = useState<any>(null)
+  const [result, setResult] = useState<ConvertToHeicResponse | null>(null)
   const [error, setError] = useState('')
 
   const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
@@ -50,8 +64,9 @@ export default function ConvertToHEIC() {
     }
   }
 
-  const formatBytes = (bytes: number) => {
-    return (bytes / 1024 / 1024).toFixed(2)
+  // Convert KB to MB
+  const kbToMb = (kb: number) => {
+    return (kb / 1024).toFixed(2)
   }
 
   return (
@@ -226,16 +241,20 @@ export default function ConvertToHEIC() {
                 <strong>Format:</strong> {result.original_format?.toUpperCase() || 'IMAGE'} → {result.output_format?.toUpperCase() || 'HEIC'}
               </p>
               <p style={{ marginBottom: '0.25rem' }}>
-                <strong>Original size:</strong> {formatBytes(result.original_size || 0)} MB
+                <strong>Dimensions:</strong> {result.dimensions || 'N/A'}
               </p>
               <p style={{ marginBottom: '0.25rem' }}>
-                <strong>Output size:</strong> {formatBytes(result.output_size || 0)} MB
+                <strong>Original size:</strong> {kbToMb(result.original_size_kb)} MB ({result.original_size_kb.toFixed(2)} KB)
               </p>
-              {result.compression_ratio && (
-                <p>
-                  <strong>Compression ratio:</strong> {result.compression_ratio.toFixed(2)}x
-                </p>
-              )}
+              <p style={{ marginBottom: '0.25rem' }}>
+                <strong>Output size:</strong> {kbToMb(result.output_size_kb)} MB ({result.output_size_kb.toFixed(2)} KB)
+              </p>
+              <p style={{ marginBottom: '0.25rem' }}>
+                <strong>Compression ratio:</strong> {result.compression_ratio.toFixed(2)}%
+              </p>
+              <p style={{ marginBottom: '0.25rem' }}>
+                <strong>Quality used:</strong> {result.quality}
+              </p>
             </div>
             <button
               onClick={handleDownload}

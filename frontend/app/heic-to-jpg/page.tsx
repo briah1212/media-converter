@@ -3,11 +3,22 @@
 import { useState } from 'react'
 import Link from 'next/link'
 
+interface HEICConvertResult {
+  file_id: string
+  original_format: string
+  output_format: string
+  original_size_kb: number
+  output_size_kb: number
+  compression_ratio: number
+  dimensions: string
+  quality: number
+}
+
 export default function HEICToJPG() {
   const [file, setFile] = useState<File | null>(null)
   const [quality, setQuality] = useState(95)
   const [loading, setLoading] = useState(false)
-  const [result, setResult] = useState<any>(null)
+  const [result, setResult] = useState<HEICConvertResult | null>(null)
   const [error, setError] = useState('')
 
   const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
@@ -48,10 +59,6 @@ export default function HEICToJPG() {
     if (result && result.file_id) {
       window.open(`${API_URL}/api/v1/download/${result.file_id}`, '_blank')
     }
-  }
-
-  const formatBytes = (bytes: number) => {
-    return (bytes / 1024 / 1024).toFixed(2)
   }
 
   return (
@@ -226,10 +233,16 @@ export default function HEICToJPG() {
                 <strong>Format:</strong> {result.original_format?.toUpperCase() || 'HEIC'} → {result.output_format?.toUpperCase() || 'JPG'}
               </p>
               <p style={{ marginBottom: '0.25rem' }}>
-                <strong>Original size:</strong> {formatBytes(result.original_size || 0)} MB
+                <strong>Original size:</strong> {(result.original_size_kb / 1024).toFixed(2)} MB
               </p>
-              <p>
-                <strong>Output size:</strong> {formatBytes(result.output_size || 0)} MB
+              <p style={{ marginBottom: '0.25rem' }}>
+                <strong>Output size:</strong> {(result.output_size_kb / 1024).toFixed(2)} MB
+              </p>
+              <p style={{ marginBottom: '0.25rem' }}>
+                <strong>Dimensions:</strong> {result.dimensions}
+              </p>
+              <p style={{ marginBottom: '0.25rem' }}>
+                <strong>Compression Ratio:</strong> {result.compression_ratio.toFixed(2)}%
               </p>
             </div>
             <button

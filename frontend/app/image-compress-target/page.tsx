@@ -5,11 +5,15 @@ import Link from 'next/link'
 
 interface CompressTargetResult {
   file_id: string
-  input_size: number
-  output_size: number
-  target_size: number
+  status: string
+  original_size_kb: number   // KB not bytes
+  target_size_kb: number     // KB not bytes
+  actual_size_kb: number     // KB not bytes
+  quality_used: number
   iterations: number
-  final_quality: number
+  compression_ratio: number
+  dimensions: string         // "800x600" format
+  format: string
 }
 
 export default function ImageCompressTarget() {
@@ -264,22 +268,31 @@ export default function ImageCompressTarget() {
             
             <div style={{ marginBottom: '1rem' }}>
               <div style={{ marginBottom: '0.5rem', color: '#333' }}>
-                <strong>Input Size:</strong> {formatFileSize(result.input_size)}
+                <strong>Input Size:</strong> {(result.original_size_kb / 1024).toFixed(2)} MB
               </div>
               <div style={{ marginBottom: '0.5rem', color: '#333' }}>
-                <strong>Output Size:</strong> {formatFileSize(result.output_size)}
+                <strong>Output Size:</strong> {(result.actual_size_kb / 1024).toFixed(2)} MB
               </div>
               <div style={{ marginBottom: '0.5rem', color: '#333' }}>
-                <strong>Target Size:</strong> {formatFileSize(result.target_size)}
+                <strong>Target Size:</strong> {(result.target_size_kb / 1024).toFixed(2)} MB
               </div>
               <div style={{ marginBottom: '0.5rem', color: '#333' }}>
-                <strong>Achievement:</strong> {result.output_size <= result.target_size ? '✓ Target met!' : '✗ Could not reach target'}
+                <strong>Achievement:</strong> {result.actual_size_kb <= result.target_size_kb ? '✓ Target met!' : '✗ Could not reach target'}
+              </div>
+              <div style={{ marginBottom: '0.5rem', color: '#333' }}>
+                <strong>Dimensions:</strong> {result.dimensions}
+              </div>
+              <div style={{ marginBottom: '0.5rem', color: '#333' }}>
+                <strong>Format:</strong> {result.format?.toUpperCase() || 'N/A'}
               </div>
               <div style={{ marginBottom: '0.5rem', color: '#333' }}>
                 <strong>Iterations:</strong> {result.iterations}
               </div>
               <div style={{ marginBottom: '0.5rem', color: '#333' }}>
-                <strong>Final Quality:</strong> {result.final_quality}%
+                <strong>Final Quality:</strong> {result.quality_used}%
+              </div>
+              <div style={{ marginBottom: '0.5rem', color: '#333' }}>
+                <strong>Compression Ratio:</strong> {(result.compression_ratio * 100).toFixed(1)}%
               </div>
             </div>
 

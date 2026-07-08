@@ -7,8 +7,9 @@ interface ConvertResult {
   file_id: string
   input_format: string
   output_format: string
-  input_size: number
-  output_size: number
+  input_size_kb: number      // KB not bytes
+  output_size_kb: number     // KB not bytes
+  dimensions?: string        // "800x600" format (may be present)
 }
 
 export default function ImageConvert() {
@@ -230,11 +231,16 @@ export default function ImageConvert() {
                 <strong>Output Format:</strong> {result.output_format?.toUpperCase() || "N/A"}
               </div>
               <div style={{ marginBottom: '0.5rem', color: '#333' }}>
-                <strong>Input Size:</strong> {formatFileSize(result.input_size)}
+                <strong>Input Size:</strong> {(result.input_size_kb / 1024).toFixed(2)} MB
               </div>
               <div style={{ marginBottom: '0.5rem', color: '#333' }}>
-                <strong>Output Size:</strong> {formatFileSize(result.output_size)}
+                <strong>Output Size:</strong> {(result.output_size_kb / 1024).toFixed(2)} MB
               </div>
+              {result.dimensions && (
+                <div style={{ marginBottom: '0.5rem', color: '#333' }}>
+                  <strong>Dimensions:</strong> {result.dimensions}
+                </div>
+              )}
             </div>
 
             <button
