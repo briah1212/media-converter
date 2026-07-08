@@ -1084,7 +1084,7 @@ async def trim_audio(
 from src.services.video_compression_service import VideoCompressionService
 video_service = VideoCompressionService()
 
-@router.post("/api/v1/video/info")
+@router.post("/video/info")
 async def get_video_info(file: UploadFile = File(...)):
     """
     Get video metadata (duration, dimensions, codec, fps).
@@ -1163,7 +1163,7 @@ async def get_video_info(file: UploadFile = File(...)):
         raise HTTPException(status_code=500, detail=f"Failed to get video info: {str(e)}")
 
 
-@router.post("/api/v1/trim/video")
+@router.post("/trim/video")
 async def trim_video_v2(
     file: UploadFile = File(...),
     start_time: float = Form(...),
