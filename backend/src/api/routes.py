@@ -1256,7 +1256,7 @@ async def trim_video_v2(
             "message": f"Video trimmed successfully ({start_time}s to {end_time}s)",
             "file_id": file_id,
             "input_duration": round(input_duration, 2),
-            "output_duration": round(output_info.get("duration", duration), 2),
+            "output_duration": round(duration, 2),
             "input_size_kb": round(input_size / 1024, 2),
             "output_size_kb": round(output_size / 1024, 2),
             "dimensions": f"{output_info.get('width', 0)}x{output_info.get('height', 0)}",
