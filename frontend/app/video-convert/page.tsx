@@ -299,7 +299,7 @@ export default function VideoConvert() {
                 <strong>Input Format:</strong> {result.input_format || 'N/A'}
               </p>
               <p style={{ marginBottom: '0.5rem' }}>
-                <strong>Output Format:</strong> {result.output_format || outputFormat.toUpperCase()}
+                <strong>Output Format:</strong> {result.output_format || outputFormat?.toUpperCase() || "N/A"}
               </p>
               <p style={{ marginBottom: '0.5rem' }}>
                 <strong>Input Size:</strong> {result.input_size ? (result.input_size / 1024 / 1024).toFixed(2) : 'N/A'} MB

@@ -267,7 +267,7 @@ export default function ImageCompress() {
                 <strong>Dimensions:</strong> {result.width} × {result.height}
               </div>
               <div style={{ marginBottom: '0.5rem', color: '#333' }}>
-                <strong>Format:</strong> {result.format.toUpperCase()}
+                <strong>Format:</strong> {result.format?.toUpperCase() || "N/A"}
               </div>
             </div>
 

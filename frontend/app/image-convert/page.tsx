@@ -224,10 +224,10 @@ export default function ImageConvert() {
             
             <div style={{ marginBottom: '1rem' }}>
               <div style={{ marginBottom: '0.5rem', color: '#333' }}>
-                <strong>Input Format:</strong> {result.input_format.toUpperCase()}
+                <strong>Input Format:</strong> {result.input_format?.toUpperCase() || "N/A"}
               </div>
               <div style={{ marginBottom: '0.5rem', color: '#333' }}>
-                <strong>Output Format:</strong> {result.output_format.toUpperCase()}
+                <strong>Output Format:</strong> {result.output_format?.toUpperCase() || "N/A"}
               </div>
               <div style={{ marginBottom: '0.5rem', color: '#333' }}>
                 <strong>Input Size:</strong> {formatFileSize(result.input_size)}
