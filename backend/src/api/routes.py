@@ -1226,13 +1226,16 @@ async def trim_video_v2(
         output_path = f"/app/downloads/trimmed_{uuid.uuid4()}.{output_format}"
         
         # Use ffmpeg with -c copy for fast trimming (no re-encoding)
+        # Put -ss before -i for fast seeking, then use -t for duration
+        duration = end_time - start_time
         cmd = [
             "ffmpeg",
-            "-i", temp_input,
             "-ss", str(start_time),
-            "-to", str(end_time),
-            "-c", "copy",           # Copy streams without re-encoding
-            "-avoid_negative_ts", "1",  # Handle timestamp issues
+            "-i", temp_input,
+            "-t", str(duration),
+            "-c:v", "copy",
+            "-c:a", "copy",
+            "-avoid_negative_ts", "1",
             "-y",
             output_path
         ]
