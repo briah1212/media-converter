@@ -243,10 +243,10 @@ export default function ConvertToAVIF() {
                 <strong>Dimensions:</strong> {result.dimensions}
               </p>
               <p style={{ marginBottom: '0.25rem' }}>
-                <strong>Original size:</strong> {formatKBtoMB(result.original_size_kb)} MB
+                <strong>Original size:</strong> {result.original_size_kb != null && !isNaN(result.original_size_kb) ? formatKBtoMB(result.original_size_kb) : 'N/A'} MB
               </p>
               <p style={{ marginBottom: '0.25rem' }}>
-                <strong>Output size:</strong> {formatKBtoMB(result.output_size_kb)} MB
+                <strong>Output size:</strong> {result.output_size_kb != null && !isNaN(result.output_size_kb) ? formatKBtoMB(result.output_size_kb) : 'N/A'} MB
               </p>
               <p style={{ 
                 color: '#16a34a',

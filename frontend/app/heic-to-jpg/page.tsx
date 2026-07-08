@@ -233,10 +233,10 @@ export default function HEICToJPG() {
                 <strong>Format:</strong> {result.original_format?.toUpperCase() || 'HEIC'} → {result.output_format?.toUpperCase() || 'JPG'}
               </p>
               <p style={{ marginBottom: '0.25rem' }}>
-                <strong>Original size:</strong> {(result.original_size_kb / 1024).toFixed(2)} MB
+                <strong>Original size:</strong> {result.original_size_kb != null && !isNaN(result.original_size_kb) ? (result.original_size_kb / 1024).toFixed(2) : 'N/A'} MB
               </p>
               <p style={{ marginBottom: '0.25rem' }}>
-                <strong>Output size:</strong> {(result.output_size_kb / 1024).toFixed(2)} MB
+                <strong>Output size:</strong> {result.output_size_kb != null && !isNaN(result.output_size_kb) ? (result.output_size_kb / 1024).toFixed(2) : 'N/A'} MB
               </p>
               <p style={{ marginBottom: '0.25rem' }}>
                 <strong>Dimensions:</strong> {result.dimensions}

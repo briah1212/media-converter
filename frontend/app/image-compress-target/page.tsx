@@ -268,13 +268,13 @@ export default function ImageCompressTarget() {
             
             <div style={{ marginBottom: '1rem' }}>
               <div style={{ marginBottom: '0.5rem', color: '#333' }}>
-                <strong>Input Size:</strong> {(result.original_size_kb / 1024).toFixed(2)} MB
+                <strong>Input Size:</strong> {result.original_size_kb != null && !isNaN(result.original_size_kb) ? (result.original_size_kb / 1024).toFixed(2) : 'N/A'} MB
               </div>
               <div style={{ marginBottom: '0.5rem', color: '#333' }}>
-                <strong>Output Size:</strong> {(result.actual_size_kb / 1024).toFixed(2)} MB
+                <strong>Output Size:</strong> {result.actual_size_kb != null && !isNaN(result.actual_size_kb) ? (result.actual_size_kb / 1024).toFixed(2) : 'N/A'} MB
               </div>
               <div style={{ marginBottom: '0.5rem', color: '#333' }}>
-                <strong>Target Size:</strong> {(result.target_size_kb / 1024).toFixed(2)} MB
+                <strong>Target Size:</strong> {result.target_size_kb != null && !isNaN(result.target_size_kb) ? (result.target_size_kb / 1024).toFixed(2) : 'N/A'} MB
               </div>
               <div style={{ marginBottom: '0.5rem', color: '#333' }}>
                 <strong>Achievement:</strong> {result.actual_size_kb <= result.target_size_kb ? '✓ Target met!' : '✗ Could not reach target'}

@@ -244,10 +244,10 @@ export default function ConvertToHEIC() {
                 <strong>Dimensions:</strong> {result.dimensions || 'N/A'}
               </p>
               <p style={{ marginBottom: '0.25rem' }}>
-                <strong>Original size:</strong> {kbToMb(result.original_size_kb)} MB ({result.original_size_kb.toFixed(2)} KB)
+                <strong>Original size:</strong> {result.original_size_kb != null && !isNaN(result.original_size_kb) ? `${kbToMb(result.original_size_kb)} MB (${result.original_size_kb.toFixed(2)} KB)` : 'N/A'}
               </p>
               <p style={{ marginBottom: '0.25rem' }}>
-                <strong>Output size:</strong> {kbToMb(result.output_size_kb)} MB ({result.output_size_kb.toFixed(2)} KB)
+                <strong>Output size:</strong> {result.output_size_kb != null && !isNaN(result.output_size_kb) ? `${kbToMb(result.output_size_kb)} MB (${result.output_size_kb.toFixed(2)} KB)` : 'N/A'}
               </p>
               <p style={{ marginBottom: '0.25rem' }}>
                 <strong>Compression ratio:</strong> {result.compression_ratio.toFixed(2)}%

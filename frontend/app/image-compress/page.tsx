@@ -254,10 +254,10 @@ export default function ImageCompress() {
             
             <div style={{ marginBottom: '1rem' }}>
               <div style={{ marginBottom: '0.5rem', color: '#333' }}>
-                <strong>Input Size:</strong> {(result.input_size_kb / 1024).toFixed(2)} MB
+                <strong>Input Size:</strong> {result.input_size_kb != null && !isNaN(result.input_size_kb) ? (result.input_size_kb / 1024).toFixed(2) : 'N/A'} MB
               </div>
               <div style={{ marginBottom: '0.5rem', color: '#333' }}>
-                <strong>Output Size:</strong> {(result.output_size_kb / 1024).toFixed(2)} MB
+                <strong>Output Size:</strong> {result.output_size_kb != null && !isNaN(result.output_size_kb) ? (result.output_size_kb / 1024).toFixed(2) : 'N/A'} MB
               </div>
               <div style={{ marginBottom: '0.5rem', color: '#333' }}>
                 <strong>Compression Ratio:</strong> {result.compression_ratio.toFixed(2)}%

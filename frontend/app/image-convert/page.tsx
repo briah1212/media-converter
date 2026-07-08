@@ -231,10 +231,10 @@ export default function ImageConvert() {
                 <strong>Output Format:</strong> {result.output_format?.toUpperCase() || "N/A"}
               </div>
               <div style={{ marginBottom: '0.5rem', color: '#333' }}>
-                <strong>Input Size:</strong> {(result.input_size_kb / 1024).toFixed(2)} MB
+                <strong>Input Size:</strong> {result.input_size_kb != null && !isNaN(result.input_size_kb) ? (result.input_size_kb / 1024).toFixed(2) : 'N/A'} MB
               </div>
               <div style={{ marginBottom: '0.5rem', color: '#333' }}>
-                <strong>Output Size:</strong> {(result.output_size_kb / 1024).toFixed(2)} MB
+                <strong>Output Size:</strong> {result.output_size_kb != null && !isNaN(result.output_size_kb) ? (result.output_size_kb / 1024).toFixed(2) : 'N/A'} MB
               </div>
               {result.dimensions && (
                 <div style={{ marginBottom: '0.5rem', color: '#333' }}>
