@@ -315,9 +315,10 @@ image_compression_service = ImageCompressionService()
 @router.post("/compress/image")
 async def compress_image(
     file: UploadFile = File(...),
-    mode: str = "balanced",
+    mode: str | None = None,
     target_format: str | None = None,
-    quality: int | None = None,
+    quality: str | None = None,  # Changed from int to str to accept 'low', 'medium', 'high'
+    format: str | None = None,  # Added: frontend sends 'format' instead of 'target_format'
     max_width: int | None = None,
     max_height: int | None = None,
 ):
@@ -337,6 +338,31 @@ async def compress_image(
     Returns:
         Compressed image information
     """
+    # Normalize parameters: frontend sends 'quality' and 'format', backend uses 'mode' and 'target_format'
+    if format and not target_format:
+        target_format = format  # Frontend sends 'format', map to 'target_format'
+    
+    # Map quality string to mode if quality is provided as string
+    if quality and isinstance(quality, str) and quality in ['low', 'medium', 'high']:
+        quality_to_mode = {
+            'low': 'aggressive',    # Low quality = aggressive compression
+            'medium': 'balanced',   # Medium quality = balanced compression
+            'high': 'lossless',     # High quality = lossless compression
+        }
+        if not mode:
+            mode = quality_to_mode[quality]
+        quality = None  # Clear quality since we're using mode
+    elif quality and isinstance(quality, str):
+        # Try to parse as int
+        try:
+            quality = int(quality)
+        except ValueError:
+            quality = None
+    
+    # Set default mode if not provided
+    if not mode:
+        mode = "balanced"
+    
     # Validate mode
     valid_modes = ["lossless", "balanced", "aggressive"]
     if mode not in valid_modes:
@@ -353,8 +379,8 @@ async def compress_image(
             detail=f"Invalid format. Must be one of: {', '.join(valid_formats)}"
         )
     
-    # Validate quality
-    if quality and (quality < 1 or quality > 100):
+    # Validate quality (only if it's an int)
+    if quality and isinstance(quality, int) and (quality < 1 or quality > 100):
         raise HTTPException(
             status_code=400,
             detail="Quality must be between 1 and 100"
@@ -457,18 +483,26 @@ async def detect_image_format(file: UploadFile = File(...)):
 @router.post("/convert/image")
 async def convert_image_format(
     file: UploadFile = File(...),
-    target_format: str = "webp",
+    target_format: str | None = None,  # Backend parameter
+    output_format: str | None = None,  # Frontend parameter
 ):
     """
     Convert image to a different format.
     
     Args:
         file: Image file
-        target_format: Target format (png, jpeg, webp, gif)
+        target_format: Target format (png, jpeg, webp, gif) - backend name
+        output_format: Target format (png, jpeg, webp, gif) - frontend name
         
     Returns:
         Converted image information
     """
+    # Normalize parameters: frontend sends 'output_format', backend uses 'target_format'
+    if output_format and not target_format:
+        target_format = output_format
+    if not target_format:
+        target_format = "webp"  # Default
+    
     valid_formats = ["png", "jpeg", "jpg", "webp", "gif"]
     if target_format not in valid_formats:
         raise HTTPException(
@@ -1315,13 +1349,20 @@ async def split_pdf(
 @router.post("/pdf/compress")
 async def compress_pdf(
     file: UploadFile = File(...),
-    quality: str = Form("medium")
+    quality: str = Form(None),  # Backend parameter
+    compression_level: str = Form(None),  # Frontend parameter
 ):
     """
     Compress PDF file to reduce size.
     
-    Quality: low, medium, high
+    Quality/compression_level: low, medium, high
     """
+    # Normalize parameters: frontend sends 'compression_level', backend uses 'quality'
+    if compression_level and not quality:
+        quality = compression_level
+    if not quality:
+        quality = "medium"  # Default
+    
     valid_quality = ["low", "medium", "high"]
     if quality not in valid_quality:
         raise HTTPException(status_code=400, detail="Quality must be one of: " + ", ".join(valid_quality))
