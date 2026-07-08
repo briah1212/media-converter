@@ -1084,6 +1084,193 @@ async def trim_audio(
 from src.services.video_compression_service import VideoCompressionService
 video_service = VideoCompressionService()
 
+@router.post("/api/v1/video/info")
+async def get_video_info(file: UploadFile = File(...)):
+    """
+    Get video metadata (duration, dimensions, codec, fps).
+    
+    Used by frontend to initialize timeline controls.
+    
+    Args:
+        file: Video file to analyze
+        
+    Returns:
+        Video metadata including duration, dimensions, codec, fps
+    """
+    temp_input = f"/app/temp/info_{uuid.uuid4()}_{file.filename}"
+    
+    try:
+        # Save uploaded file
+        with open(temp_input, "wb") as f:
+            content = await file.read()
+            f.write(content)
+        
+        # Get video info using the existing service method
+        info = video_service._get_video_info(temp_input)
+        
+        # Get file size
+        file_size = Path(temp_input).stat().st_size
+        
+        # Get additional stream info for fps and codec
+        cmd = [
+            "ffprobe",
+            "-v", "quiet",
+            "-print_format", "json",
+            "-show_streams",
+            temp_input
+        ]
+        
+        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        import json
+        probe_data = json.loads(result.stdout)
+        
+        # Find video stream
+        video_stream = None
+        for stream in probe_data.get("streams", []):
+            if stream.get("codec_type") == "video":
+                video_stream = stream
+                break
+        
+        fps = 0
+        codec = "unknown"
+        if video_stream:
+            # Parse fps from r_frame_rate (e.g., "30/1" or "30000/1001")
+            fps_str = video_stream.get("r_frame_rate", "0/1")
+            if "/" in fps_str:
+                num, denom = map(int, fps_str.split("/"))
+                fps = round(num / denom, 2) if denom > 0 else 0
+            codec = video_stream.get("codec_name", "unknown")
+        
+        # Cleanup temp file
+        os.remove(temp_input)
+        
+        return {
+            "success": True,
+            "duration": info.get("duration", 0),
+            "width": info.get("width", 0),
+            "height": info.get("height", 0),
+            "dimensions": f"{info.get('width', 0)}x{info.get('height', 0)}",
+            "fps": fps,
+            "codec": codec,
+            "bitrate": info.get("bit_rate", 0),
+            "size_kb": round(file_size / 1024, 2),
+            "format": info.get("format_name", "unknown")
+        }
+        
+    except Exception as e:
+        if os.path.exists(temp_input):
+            os.remove(temp_input)
+        raise HTTPException(status_code=500, detail=f"Failed to get video info: {str(e)}")
+
+
+@router.post("/api/v1/trim/video")
+async def trim_video_v2(
+    file: UploadFile = File(...),
+    start_time: float = Form(...),
+    end_time: float = Form(...),
+    output_format: str = Form("mp4")
+):
+    """
+    Trim video to specified time range with fast stream copy.
+    
+    Uses -c copy for fast trimming without re-encoding.
+    Supports mp4, webm, mov, avi formats.
+    
+    Args:
+        file: Video file to trim
+        start_time: Start time in seconds
+        end_time: End time in seconds  
+        output_format: Output format (default: mp4)
+        
+    Returns:
+        Trimmed video information with file_id and metadata
+    """
+    # Validate format
+    valid_formats = ["mp4", "webm", "mov", "avi"]
+    if output_format not in valid_formats:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid format. Must be one of: {', '.join(valid_formats)}"
+        )
+    
+    # Validate time range
+    if start_time < 0:
+        raise HTTPException(status_code=400, detail="start_time must be >= 0")
+    
+    if end_time <= start_time:
+        raise HTTPException(status_code=400, detail="end_time must be > start_time")
+    
+    temp_input = f"/app/temp/trim_{uuid.uuid4()}_{file.filename}"
+    
+    try:
+        # Save uploaded file
+        with open(temp_input, "wb") as f:
+            content = await file.read()
+            f.write(content)
+        
+        # Get input info
+        input_info = video_service._get_video_info(temp_input)
+        input_duration = input_info.get("duration", 0)
+        input_size = Path(temp_input).stat().st_size
+        
+        # Validate end_time doesn't exceed duration
+        if end_time > input_duration:
+            end_time = input_duration
+        
+        # Calculate duration
+        duration = end_time - start_time
+        
+        # Generate output path
+        output_path = f"/app/downloads/trimmed_{uuid.uuid4()}.{output_format}"
+        
+        # Use ffmpeg with -c copy for fast trimming (no re-encoding)
+        cmd = [
+            "ffmpeg",
+            "-i", temp_input,
+            "-ss", str(start_time),
+            "-to", str(end_time),
+            "-c", "copy",           # Copy streams without re-encoding
+            "-avoid_negative_ts", "1",  # Handle timestamp issues
+            "-y",
+            output_path
+        ]
+        
+        subprocess.run(cmd, check=True, capture_output=True, text=True, timeout=300)
+        
+        # Get output info
+        output_info = video_service._get_video_info(output_path)
+        output_size = Path(output_path).stat().st_size
+        
+        # Cleanup input file
+        os.remove(temp_input)
+        
+        file_id = Path(output_path).name
+        
+        return {
+            "success": True,
+            "message": f"Video trimmed successfully ({start_time}s to {end_time}s)",
+            "file_id": file_id,
+            "input_duration": round(input_duration, 2),
+            "output_duration": round(output_info.get("duration", duration), 2),
+            "input_size_kb": round(input_size / 1024, 2),
+            "output_size_kb": round(output_size / 1024, 2),
+            "dimensions": f"{output_info.get('width', 0)}x{output_info.get('height', 0)}",
+            "start_time": start_time,
+            "end_time": end_time,
+            "format": output_format
+        }
+        
+    except subprocess.CalledProcessError as e:
+        if os.path.exists(temp_input):
+            os.remove(temp_input)
+        error_msg = e.stderr if e.stderr else str(e)
+        raise HTTPException(status_code=500, detail=f"Video trim failed: {error_msg}")
+    except Exception as e:
+        if os.path.exists(temp_input):
+            os.remove(temp_input)
+        raise HTTPException(status_code=500, detail=f"Video trim error: {str(e)}")
+
+
 @router.post("/video/trim")
 async def trim_video(
     file: UploadFile = File(...),
