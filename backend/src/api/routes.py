@@ -315,12 +315,12 @@ image_compression_service = ImageCompressionService()
 @router.post("/compress/image")
 async def compress_image(
     file: UploadFile = File(...),
-    mode: str | None = None,
-    target_format: str | None = None,
-    quality: str | None = None,  # Changed from int to str to accept 'low', 'medium', 'high'
-    format: str | None = None,  # Added: frontend sends 'format' instead of 'target_format'
-    max_width: int | None = None,
-    max_height: int | None = None,
+    mode: str | None = Form(None),
+    target_format: str | None = Form(None),
+    quality: str | None = Form(None),  # Changed from int to str to accept low, medium, high
+    format: str | None = Form(None),  # Added: frontend sends format instead of target_format
+    max_width: int | None = Form(None),
+    max_height: int | None = Form(None),
 ):
     """
     Compress and optimize an image (like TinyPNG).
@@ -483,8 +483,8 @@ async def detect_image_format(file: UploadFile = File(...)):
 @router.post("/convert/image")
 async def convert_image_format(
     file: UploadFile = File(...),
-    target_format: str | None = None,  # Backend parameter
-    output_format: str | None = None,  # Frontend parameter
+    target_format: str | None = Form(None),  # Backend parameter
+    output_format: str | None = Form(None),  # Frontend parameter
 ):
     """
     Convert image to a different format.
