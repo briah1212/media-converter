@@ -298,14 +298,23 @@ class VideoCompressionService:
             data = json.loads(result.stdout)
             format_info = data.get("format", {})
             
+            # Get video stream info for width/height
+            video_stream = None
+            for stream in data.get("streams", []):
+                if stream.get("codec_type") == "video":
+                    video_stream = stream
+                    break
+            
             return {
                 "duration": float(format_info.get("duration", 0)),
                 "size": int(format_info.get("size", 0)),
                 "bit_rate": int(format_info.get("bit_rate", 0)),
                 "format_name": format_info.get("format_name", "unknown"),
+                "width": int(video_stream.get("width", 1920)) if video_stream else 1920,
+                "height": int(video_stream.get("height", 1080)) if video_stream else 1080,
             }
         except Exception as e:
-            return {"duration": 0, "size": 0, "bit_rate": 0}
+            return {"duration": 0, "size": 0, "bit_rate": 0, "width": 1920, "height": 1080}
     
     def get_compression_estimate(
         self,
@@ -369,7 +378,7 @@ class VideoCompressionService:
         cmd.extend(["-c", "copy", "-y", str(output_path)])
         
         try:
-            subprocess.run(cmd, check=True, capture_output=True, stderr=subprocess.PIPE)
+            subprocess.run(cmd, check=True, capture_output=True)
             output_info = self._get_video_info(str(output_path))
             output_size = output_path.stat().st_size
             
@@ -383,7 +392,8 @@ class VideoCompressionService:
                 "actual_duration": output_info.get("duration", 0)
             }
         except subprocess.CalledProcessError as e:
-            raise ValueError(f"Trim failed: {e.stderr.decode()}")
+            error_msg = e.stderr.decode() if e.stderr else str(e)
+            raise ValueError(f"Trim failed: {error_msg}")
 
     def resize_video(self, input_path: str, width: Optional[int] = None, height: Optional[int] = None, scale: Optional[float] = None) -> Dict:
         """Resize video to specified dimensions or scale."""
@@ -417,7 +427,7 @@ class VideoCompressionService:
         cmd = ["ffmpeg", "-i", str(input_path), "-vf", f"scale={width}:{height}", "-c:a", "copy", "-y", str(output_path)]
         
         try:
-            subprocess.run(cmd, check=True, capture_output=True, stderr=subprocess.PIPE)
+            subprocess.run(cmd, check=True, capture_output=True)
             output_info = self._get_video_info(str(output_path))
             output_size = output_path.stat().st_size
             input_size = input_file.stat().st_size
@@ -425,14 +435,15 @@ class VideoCompressionService:
             return {
                 "success": True,
                 "output_path": str(output_path),
-                "input_resolution": f"{input_info.get(width)}x{input_info.get(height)}",
+                "input_resolution": f"{input_info.get('width')}x{input_info.get('height')}",
                 "output_resolution": f"{width}x{height}",
                 "input_size_mb": round(input_size / (1024 * 1024), 2),
                 "output_size_mb": round(output_size / (1024 * 1024), 2),
                 "duration": output_info.get("duration", 0)
             }
         except subprocess.CalledProcessError as e:
-            raise ValueError(f"Resize failed: {e.stderr.decode()}")
+            error_msg = e.stderr.decode() if e.stderr else str(e)
+            raise ValueError(f"Resize failed: {error_msg}")
 
     def convert_video_format(self, input_path: str, output_format: str, quality: str = "medium") -> Dict:
         """Convert video to different format."""
@@ -452,7 +463,7 @@ class VideoCompressionService:
         cmd = ["ffmpeg", "-i", str(input_path)] + codec_params + ["-c:a", "aac", "-y", str(output_path)]
         
         try:
-            subprocess.run(cmd, check=True, capture_output=True, stderr=subprocess.PIPE)
+            subprocess.run(cmd, check=True, capture_output=True)
             output_info = self._get_video_info(str(output_path))
             output_size = output_path.stat().st_size
             input_size = input_file.stat().st_size
@@ -465,7 +476,8 @@ class VideoCompressionService:
                 "input_size_mb": round(input_size / (1024 * 1024), 2),
                 "output_size_mb": round(output_size / (1024 * 1024), 2),
                 "duration": output_info.get("duration", 0),
-                "resolution": f"{output_info.get(width)}x{output_info.get(height)}"
+                "resolution": f"{output_info.get('width')}x{output_info.get('height')}"
             }
         except subprocess.CalledProcessError as e:
-            raise ValueError(f"Format conversion failed: {e.stderr.decode()}")
+            error_msg = e.stderr.decode() if e.stderr else str(e)
+            raise ValueError(f"Format conversion failed: {error_msg}")
