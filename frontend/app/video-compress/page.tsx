@@ -1,317 +1,198 @@
 'use client'
 
 import { useState } from 'react'
-import Link from 'next/link'
+import ToolPage from '@/components/ui/ToolPage'
+import Dropzone from '@/components/ui/Dropzone'
+import VideoPreview from '@/components/ui/VideoPreview'
+import Chips from '@/components/ui/Chips'
+import { ErrorPanel, DonePanel } from '@/components/ui/panels'
+import { uploadFile, downloadFile, formatFileSize, formatDuration } from '@/lib/api'
+import { loadMediaMeta, MediaMeta } from '@/lib/media'
+
+const RESOLUTIONS = [
+  { label: '480p', height: 480, factor: 0.25 },
+  { label: '720p', height: 720, factor: 0.45 },
+  { label: '1080p', height: 1080, factor: 0.7 },
+  { label: '4K', height: 2160, factor: 1 },
+]
+
+function presetForQuality(q: number): string {
+  if (q >= 81) return 'high'
+  if (q >= 56) return 'balanced'
+  if (q >= 31) return 'high_compression'
+  return 'max_compression'
+}
 
 export default function VideoCompress() {
   const [file, setFile] = useState<File | null>(null)
-  const [preset, setPreset] = useState('medium')
-  const [codec, setCodec] = useState('h264')
-  const [crf, setCrf] = useState(23)
-  const [loading, setLoading] = useState(false)
-  const [result, setResult] = useState<any>(null)
+  const [previewUrl, setPreviewUrl] = useState('')
+  const [meta, setMeta] = useState<MediaMeta | null>(null)
+  const [quality, setQuality] = useState(60)
+  const [resolution, setResolution] = useState('1080p')
+  const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const [result, setResult] = useState<{ file_id: string; message: string } | null>(null)
 
-  const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!file) return
-
-    setLoading(true)
+  const onFiles = async (files: File[]) => {
+    const f = files[0]
+    setFile(f)
+    setPreviewUrl(URL.createObjectURL(f))
     setError('')
     setResult(null)
-
-    const formData = new FormData()
-    formData.append('file', file)
-    formData.append('preset', preset)
-    formData.append('codec', codec)
-    formData.append('crf', crf.toString())
-
     try {
-      const response = await fetch(`${API_URL}/api/v1/compress/video`, {
-        method: 'POST',
-        body: formData,
-      })
-
-      if (!response.ok) {
-        const errorData = await response.json()
-        throw new Error(errorData.detail || 'Compression failed')
+      const m = await loadMediaMeta(f, 'video')
+      setMeta(m)
+      if (m.height) {
+        const fit = RESOLUTIONS.filter((r) => r.height <= m.height!).pop()
+        if (fit) setResolution(fit.label)
       }
+    } catch {
+      setMeta(null)
+    }
+  }
 
-      const data = await response.json()
+  const reset = () => {
+    setFile(null)
+    setPreviewUrl('')
+    setMeta(null)
+    setQuality(60)
+    setResolution('1080p')
+    setError('')
+    setResult(null)
+  }
+
+  const selectedRes = RESOLUTIONS.find((r) => r.label === resolution) || RESOLUTIONS[2]
+  const qFactor = 0.15 + (quality / 100) * 0.55
+  const estBytes = file ? Math.max(1, file.size * selectedRes.factor * qFactor) : 0
+  const savedPct = file ? Math.round((1 - estBytes / file.size) * 100) : 0
+
+  const compress = async () => {
+    if (!file) return
+    setBusy(true)
+    setError('')
+    try {
+      const formData = new FormData()
+      formData.append('file', file)
+      const params = new URLSearchParams({
+        preset: presetForQuality(quality),
+        max_height: String(selectedRes.height),
+      })
+      const data = await uploadFile(`compress/video?${params}`, formData)
       setResult(data)
+      downloadFile(data.file_id)
     } catch (err: any) {
-      setError(err.message || 'An error occurred')
+      setError(err.message || 'Compression failed')
     } finally {
-      setLoading(false)
+      setBusy(false)
     }
-  }
-
-  const handleDownload = () => {
-    if (result && result.file_id) {
-      window.open(`${API_URL}/api/v1/download/${result.file_id}`, '_blank')
-    }
-  }
-
-  const calculateCompressionRatio = () => {
-    if (result && result.input_size && result.output_size) {
-      const ratio = ((1 - result.output_size / result.input_size) * 100).toFixed(1)
-      return ratio
-    }
-    return '0'
   }
 
   return (
-    <div style={{
-      minHeight: '100vh',
-      display: 'flex',
-      flexDirection: 'column',
-      alignItems: 'center',
-      padding: '2rem',
-    }}>
-      <Link href="/" style={{
-        color: 'white',
-        textDecoration: 'none',
-        marginBottom: '2rem',
-        fontSize: '1rem',
-      }}>
-        ← Back to Home
-      </Link>
-
-      <div style={{
-        background: 'white',
-        borderRadius: '16px',
-        padding: '2.5rem',
-        boxShadow: '0 15px 40px rgba(0, 0, 0, 0.2)',
-        maxWidth: '600px',
-        width: '100%',
-      }}>
-        <h1 style={{
-          fontSize: '2rem',
-          fontWeight: 'bold',
-          marginBottom: '0.5rem',
-          color: '#333',
-        }}>
-          Video Compression
-        </h1>
-        <p style={{
-          color: '#666',
-          marginBottom: '2rem',
-        }}>
-          Compress your video files to reduce size while maintaining quality
-        </p>
-
-        <form onSubmit={handleSubmit}>
-          <div style={{ marginBottom: '1.5rem' }}>
-            <label style={{
-              display: 'block',
-              marginBottom: '0.5rem',
-              fontWeight: '500',
-              color: '#333',
-            }}>
-              Upload Video File
-            </label>
-            <input
-              type="file"
-              accept="video/*"
-              onChange={(e) => setFile(e.target.files?.[0] || null)}
-              required
-              style={{
-                width: '100%',
-                padding: '0.75rem',
-                border: '2px solid #e5e7eb',
-                borderRadius: '8px',
-                fontSize: '1rem',
-                outline: 'none',
-              }}
-            />
-            {file && (
-              <p style={{
-                marginTop: '0.5rem',
-                fontSize: '0.875rem',
-                color: '#666',
-              }}>
-                Selected: {file.name} ({(file.size / 1024 / 1024).toFixed(2)} MB)
-              </p>
-            )}
+    <ToolPage
+      crumb="Video Compress"
+      emoji="📦"
+      title="Video Compress"
+      subtitle="Shrink a video's file size while keeping it watchable."
+    >
+      {!file ? (
+        <Dropzone
+          emoji="🎬"
+          label="Drag & drop a video, or click to browse"
+          hint="MP4, MOV, WEBM up to 2 GB"
+          accept="video/*"
+          onFiles={onFiles}
+        />
+      ) : (
+        <>
+          <VideoPreview
+            src={previewUrl}
+            leftBadge={`${file.name}${meta?.width ? ` · ${meta.width}×${meta.height}` : ''}`}
+            rightBadge={meta?.duration ? formatDuration(meta.duration) : undefined}
+            style={{ marginTop: 24 }}
+          />
+          <div style={{ fontSize: 13, color: 'var(--muted)', marginTop: 8 }}>
+            Original size: {formatFileSize(file.size)}
           </div>
 
-          <div style={{ marginBottom: '1.5rem' }}>
-            <label style={{
-              display: 'block',
-              marginBottom: '0.5rem',
-              fontWeight: '500',
-              color: '#333',
-            }}>
-              Preset
-            </label>
-            <select
-              value={preset}
-              onChange={(e) => setPreset(e.target.value)}
-              style={{
-                width: '100%',
-                padding: '0.75rem',
-                border: '2px solid #e5e7eb',
-                borderRadius: '8px',
-                fontSize: '1rem',
-                outline: 'none',
-                backgroundColor: 'white',
-              }}
-            >
-              <option value="ultrafast">Ultrafast (fastest, larger file)</option>
-              <option value="fast">Fast</option>
-              <option value="medium">Medium (balanced)</option>
-              <option value="slow">Slow (best compression)</option>
-            </select>
-          </div>
-
-          <div style={{ marginBottom: '1.5rem' }}>
-            <label style={{
-              display: 'block',
-              marginBottom: '0.5rem',
-              fontWeight: '500',
-              color: '#333',
-            }}>
-              Codec
-            </label>
-            <select
-              value={codec}
-              onChange={(e) => setCodec(e.target.value)}
-              style={{
-                width: '100%',
-                padding: '0.75rem',
-                border: '2px solid #e5e7eb',
-                borderRadius: '8px',
-                fontSize: '1rem',
-                outline: 'none',
-                backgroundColor: 'white',
-              }}
-            >
-              <option value="h264">H.264 (widely compatible)</option>
-              <option value="h265">H.265/HEVC (better compression)</option>
-              <option value="vp9">VP9 (open source)</option>
-            </select>
-          </div>
-
-          <div style={{ marginBottom: '1.5rem' }}>
-            <label style={{
-              display: 'block',
-              marginBottom: '0.5rem',
-              fontWeight: '500',
-              color: '#333',
-            }}>
-              CRF (Quality): {crf}
-            </label>
+          <div className="pixel-card notch-6" style={{ marginTop: 20, padding: 22, boxShadow: 'none' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+              <span className="label-caps">Compression level</span>
+              <span className="label-caps">{quality}%</span>
+            </div>
             <input
               type="range"
-              min="18"
-              max="28"
-              value={crf}
-              onChange={(e) => setCrf(parseInt(e.target.value))}
+              min={10}
+              max={100}
+              value={quality}
+              onChange={(e) => {
+                setQuality(Number(e.target.value))
+                setResult(null)
+              }}
+              style={{ width: '100%', marginTop: 12 }}
+            />
+            <div
               style={{
-                width: '100%',
+                display: 'flex',
+                justifyContent: 'space-between',
+                fontSize: 11,
+                color: 'var(--faint)',
+                marginTop: 2,
+              }}
+            >
+              <span>Smallest file</span>
+              <span>Best quality</span>
+            </div>
+
+            <div className="label-caps" style={{ marginTop: 18 }}>
+              Resolution
+            </div>
+            <Chips
+              options={RESOLUTIONS.map((r) => ({ value: r.label, label: r.label }))}
+              value={resolution}
+              onChange={(r) => {
+                setResolution(r)
+                setResult(null)
               }}
             />
-            <p style={{
-              fontSize: '0.75rem',
-              color: '#999',
-              marginTop: '0.25rem',
-            }}>
-              Lower = better quality, larger file | Higher = lower quality, smaller file
-            </p>
           </div>
 
-          <button
-            type="submit"
-            disabled={loading || !file}
+          <div
             style={{
-              width: '100%',
-              padding: '0.875rem',
-              backgroundColor: (loading || !file) ? '#9ca3af' : '#667eea',
-              color: 'white',
-              border: 'none',
-              borderRadius: '8px',
-              fontSize: '1rem',
-              fontWeight: '600',
-              cursor: (loading || !file) ? 'not-allowed' : 'pointer',
-              transition: 'background-color 0.3s',
-            }}
-            onMouseEnter={(e) => {
-              if (!loading && file) e.currentTarget.style.backgroundColor = '#5568d3'
-            }}
-            onMouseLeave={(e) => {
-              if (!loading && file) e.currentTarget.style.backgroundColor = '#667eea'
+              marginTop: 20,
+              background: 'var(--tile)',
+              border: '2px solid var(--accent-soft)',
+              padding: '16px 20px',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
             }}
           >
-            {loading ? 'Compressing...' : 'Compress Video'}
-          </button>
-        </form>
-
-        {error && (
-          <div style={{
-            marginTop: '1.5rem',
-            padding: '1rem',
-            backgroundColor: '#fee2e2',
-            borderRadius: '8px',
-            color: '#dc2626',
-          }}>
-            {error}
-          </div>
-        )}
-
-        {result && (
-          <div style={{
-            marginTop: '1.5rem',
-            padding: '1.5rem',
-            backgroundColor: '#f0fdf4',
-            borderRadius: '8px',
-          }}>
-            <h3 style={{
-              fontSize: '1.125rem',
-              fontWeight: '600',
-              marginBottom: '1rem',
-              color: '#16a34a',
-            }}>
-              Compression Complete!
-            </h3>
-            <div style={{
-              marginBottom: '1rem',
-              color: '#333',
-            }}>
-              <p style={{ marginBottom: '0.5rem' }}>
-                <strong>Input Size:</strong> {result.input_size != null && !isNaN(result.input_size) ? (result.input_size / 1024 / 1024).toFixed(2) : 'N/A'} MB
-              </p>
-              <p style={{ marginBottom: '0.5rem' }}>
-                <strong>Output Size:</strong> {result.output_size != null && !isNaN(result.output_size) ? (result.output_size / 1024 / 1024).toFixed(2) : 'N/A'} MB
-              </p>
-              <p style={{ marginBottom: '0.5rem' }}>
-                <strong>Compression Ratio:</strong> {calculateCompressionRatio()}% reduction
-              </p>
-              <p style={{ marginBottom: '0.5rem' }}>
-                <strong>Codec Used:</strong> {result.codec || codec}
-              </p>
+            <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--accent-dark)' }}>
+              Estimated result
             </div>
-            <button
-              onClick={handleDownload}
-              style={{
-                padding: '0.625rem 1.5rem',
-                backgroundColor: '#16a34a',
-                color: 'white',
-                border: 'none',
-                borderRadius: '6px',
-                fontSize: '0.875rem',
-                fontWeight: '600',
-                cursor: 'pointer',
-              }}
-              onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#15803d'}
-              onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#16a34a'}
-            >
-              Download Compressed Video
-            </button>
+            <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--accent-dark)' }}>
+              ≈ {formatFileSize(estBytes)} <span style={{ fontWeight: 400 }}>· {savedPct}% smaller</span>
+            </div>
           </div>
-        )}
-      </div>
-    </div>
+
+          {error && <ErrorPanel message={error} />}
+
+          <div style={{ marginTop: 22, display: 'flex', gap: 12, alignItems: 'center' }}>
+            {result ? (
+              <DonePanel
+                filename={file.name.replace(/\.[^.]+$/, '-compressed.mp4')}
+                meta={result.message}
+                onDownload={() => downloadFile(result.file_id)}
+                onReset={reset}
+              />
+            ) : (
+              <button className="btn-primary" onClick={compress} disabled={busy}>
+                {busy ? 'Compressing...' : '📦 Compress & download'}
+              </button>
+            )}
+          </div>
+        </>
+      )}
+    </ToolPage>
   )
 }

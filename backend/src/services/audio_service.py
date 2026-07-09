@@ -60,7 +60,7 @@ class AudioService:
     def convert_audio(
         self,
         input_path: str,
-        output_format: Literal["mp3", "aac", "m4a", "wav"],
+        output_format: Literal["mp3", "aac", "m4a", "wav", "flac", "ogg"],
         bitrate: Optional[str] = None,
         sample_rate: Optional[int] = None,
         channels: Optional[int] = None
@@ -102,6 +102,13 @@ class AudioService:
         elif output_format == "wav":
             cmd.extend(["-c:a", "pcm_s16le"])
             bitrate = None  # WAV is lossless, no bitrate
+        elif output_format == "flac":
+            cmd.extend(["-c:a", "flac"])
+            bitrate = None  # FLAC is lossless, no bitrate
+        elif output_format == "ogg":
+            cmd.extend(["-c:a", "libvorbis"])
+            if not bitrate:
+                bitrate = "192k"
         
         # Add bitrate if specified
         if bitrate:

@@ -17,34 +17,93 @@ class YouTubeService:
         self.download_dir.mkdir(parents=True, exist_ok=True)
     
     def download_video(
-        self, 
-        url: str, 
-        format_type: Literal["mp4", "mp3"] = "mp4"
+        self,
+        url: str,
+        format_type: Literal["mp4", "mp3"] = "mp4",
+        quality: Optional[int] = None,
+        bitrate: Optional[int] = None,
     ) -> dict:
         """
         Download a YouTube video in the specified format.
-        
+
         Args:
             url: YouTube video URL
             format_type: Output format (mp4 or mp3)
-            
+            quality: Max video height for mp4 (e.g. 720, 1080, 2160)
+            bitrate: Audio bitrate in kbps for mp3 (e.g. 128, 192, 256, 320)
+
         Returns:
             Dictionary with file path and metadata
-            
+
         Raises:
             ValueError: If URL is invalid or download fails
         """
         if not self._is_valid_url(url):
             raise ValueError(f"Invalid YouTube URL: {url}")
-        
+
         unique_id = str(uuid.uuid4())[:8]
-        
+
         if format_type == "mp4":
-            return self._download_mp4(url, unique_id)
+            return self._download_mp4(url, unique_id, quality=quality)
         elif format_type == "mp3":
-            return self._download_mp3(url, unique_id)
+            return self._download_mp3(url, unique_id, bitrate=bitrate)
         else:
             raise ValueError(f"Unsupported format: {format_type}")
+
+    def get_video_info(self, url: str) -> dict:
+        """
+        Fetch video metadata without downloading.
+
+        Returns title, channel, duration, view count, thumbnail, and
+        per-quality/per-bitrate size estimates for the frontend pickers.
+        """
+        if not self._is_valid_url(url):
+            raise ValueError(f"Invalid YouTube URL: {url}")
+
+        ydl_opts = {**self._get_common_opts(use_android=True), "skip_download": True}
+        info = self._download_with_fallback_strategies(ydl_opts, url, download=False)
+
+        duration = info.get("duration") or 0
+        return {
+            "title": info.get("title", "Unknown"),
+            "channel": info.get("uploader") or info.get("channel") or "Unknown channel",
+            "duration": duration,
+            "view_count": info.get("view_count"),
+            "thumbnail": info.get("thumbnail"),
+            "qualities": self._estimate_quality_sizes(info),
+            "bitrates": [
+                {"label": f"{kbps}kbps", "kbps": kbps, "size_bytes": int(duration * kbps * 1000 / 8)}
+                for kbps in (128, 192, 256, 320)
+            ],
+        }
+
+    def _estimate_quality_sizes(self, info: dict) -> list:
+        """Estimate downloadable file size for each available quality tier."""
+        duration = info.get("duration") or 0
+        formats = info.get("formats") or []
+        audio_bytes = duration * 128_000 / 8
+
+        tiers = [("360p", 0, 360), ("480p", 360, 480), ("720p", 480, 720),
+                 ("1080p", 720, 1080), ("4K", 1080, 2160)]
+        results = []
+        for label, min_h, max_h in tiers:
+            candidates = [
+                f for f in formats
+                if f.get("height") and min_h < f["height"] <= max_h
+                and f.get("vcodec") not in (None, "none")
+            ]
+            if not candidates:
+                continue
+            best = max(candidates, key=lambda f: (f["height"], f.get("tbr") or 0))
+            size = best.get("filesize") or best.get("filesize_approx")
+            if not size and best.get("tbr"):
+                size = best["tbr"] * 1000 / 8 * duration
+            if not size:
+                continue
+            if best.get("acodec") in (None, "none"):
+                size += audio_bytes
+            results.append({"label": label, "height": max_h, "size_bytes": int(size)})
+        return results
     
     def _get_common_opts(self, use_android: bool = True, use_oauth: bool = False) -> dict:
         """
@@ -109,7 +168,7 @@ class YouTubeService:
         
         return opts
     
-    def _download_with_fallback_strategies(self, ydl_opts: dict, url: str) -> dict:
+    def _download_with_fallback_strategies(self, ydl_opts: dict, url: str, download: bool = True) -> dict:
         """
         Attempt download with multiple fallback strategies.
         
@@ -206,7 +265,7 @@ class YouTubeService:
                 modified_opts = strategy_modifier(ydl_opts.copy())
                 
                 with yt_dlp.YoutubeDL(modified_opts) as ydl:
-                    info = ydl.extract_info(url, download=True)
+                    info = ydl.extract_info(url, download=download)
                     logger.info(f"Successfully downloaded with strategy: {strategy_name}")
                     return info
                     
@@ -221,15 +280,20 @@ class YouTubeService:
         # All strategies failed
         raise ValueError(f"All download strategies failed. Last error: {str(last_error)}")
     
-    def _download_mp4(self, url: str, unique_id: str) -> dict:
+    def _download_mp4(self, url: str, unique_id: str, quality: Optional[int] = None) -> dict:
         """Download video as MP4 with fallback strategies."""
         output_template = str(self.download_dir / f"{unique_id}.%(ext)s")
-        
+
+        if quality:
+            format_spec = f"best[height<={quality}][ext=mp4]/best[height<={quality}]/best[ext=mp4]/best"
+        else:
+            # Prioritize MP4 formats that don't require merging
+            format_spec = "best[ext=mp4]/best"
+
         base_opts = self._get_common_opts(use_android=True)
         ydl_opts = {
             **base_opts,
-            # Prioritize MP4 formats that don't require merging
-            "format": "best[ext=mp4]/best",
+            "format": format_spec,
             "outtmpl": output_template,
             "merge_output_format": "mp4",
         }
@@ -259,10 +323,10 @@ class YouTubeService:
         except Exception as e:
             raise ValueError(f"Download failed: {str(e)}")
     
-    def _download_mp3(self, url: str, unique_id: str) -> dict:
+    def _download_mp3(self, url: str, unique_id: str, bitrate: Optional[int] = None) -> dict:
         """Download video and convert to MP3 with fallback strategies."""
         output_template = str(self.download_dir / f"{unique_id}.%(ext)s")
-        
+
         base_opts = self._get_common_opts(use_android=True)
         ydl_opts = {
             **base_opts,
@@ -271,7 +335,7 @@ class YouTubeService:
             "postprocessors": [{
                 "key": "FFmpegExtractAudio",
                 "preferredcodec": "mp3",
-                "preferredquality": "192",
+                "preferredquality": str(bitrate or 192),
             }],
         }
         

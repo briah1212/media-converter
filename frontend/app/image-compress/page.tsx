@@ -1,298 +1,168 @@
 'use client'
 
 import { useState } from 'react'
-import Link from 'next/link'
+import ToolPage from '@/components/ui/ToolPage'
+import Dropzone from '@/components/ui/Dropzone'
+import PreviewPane from '@/components/ui/PreviewPane'
+import ActionRow from '@/components/ui/ActionRow'
+import Chips from '@/components/ui/Chips'
+import { ErrorPanel } from '@/components/ui/panels'
+import { getApiUrl, uploadFile, downloadFile, formatFileSize } from '@/lib/api'
 
-interface CompressResult {
+const FORMATS = ['JPG', 'PNG', 'WEBP']
+
+interface Result {
   file_id: string
-  input_size_kb: number      // KB not bytes
-  output_size_kb: number     // KB not bytes
+  output_size_kb: number
   compression_ratio: number
-  dimensions: string         // "800x600" format
-  output_format: string      // not just "format"
+  dimensions: string
 }
 
 export default function ImageCompress() {
   const [file, setFile] = useState<File | null>(null)
-  const [quality, setQuality] = useState<'low' | 'medium' | 'high'>('medium')
-  const [format, setFormat] = useState<'jpeg' | 'png' | 'webp'>('jpeg')
-  const [loading, setLoading] = useState(false)
-  const [result, setResult] = useState<CompressResult | null>(null)
+  const [previewUrl, setPreviewUrl] = useState('')
+  const [quality, setQuality] = useState(75)
+  const [format, setFormat] = useState('JPG')
+  const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const [result, setResult] = useState<Result | null>(null)
 
-  const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!file) return
-
-    setLoading(true)
-    setError('')
+  const onFiles = (files: File[]) => {
+    setFile(files[0])
+    setPreviewUrl(URL.createObjectURL(files[0]))
     setResult(null)
+    setError('')
+  }
 
-    const formData = new FormData()
-    formData.append('file', file)
-    formData.append('quality', quality)
-    formData.append('format', format)
+  const reset = () => {
+    setFile(null)
+    setPreviewUrl('')
+    setResult(null)
+    setError('')
+    setQuality(75)
+    setFormat('JPG')
+  }
 
+  const compress = async () => {
+    if (!file) return
+    setBusy(true)
+    setError('')
     try {
-      const response = await fetch(`${API_URL}/api/v1/compress/image`, {
-        method: 'POST',
-        body: formData,
-      })
-
-      if (!response.ok) {
-        const errorData = await response.json()
-        throw new Error(errorData.detail || 'Compression failed')
-      }
-
-      const data = await response.json()
+      const formData = new FormData()
+      formData.append('file', file)
+      formData.append('quality', String(quality))
+      formData.append('format', format.toLowerCase() === 'jpg' ? 'jpeg' : format.toLowerCase())
+      const data = await uploadFile('compress/image', formData)
       setResult(data)
+      downloadFile(data.file_id)
     } catch (err: any) {
-      setError(err.message || 'An error occurred')
+      setError(err.message || 'Compression failed')
     } finally {
-      setLoading(false)
+      setBusy(false)
     }
-  }
-
-  const handleDownload = () => {
-    if (result && result.file_id) {
-      window.open(`${API_URL}/api/v1/download/${result.file_id}`, '_blank')
-    }
-  }
-
-  const formatFileSize = (bytes: number): string => {
-    if (bytes < 1024) return `${bytes} B`
-    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(2)} KB`
-    return `${(bytes / 1024 / 1024).toFixed(2)} MB`
   }
 
   return (
-    <div style={{
-      minHeight: '100vh',
-      display: 'flex',
-      flexDirection: 'column',
-      alignItems: 'center',
-      padding: '2rem',
-    }}>
-      <Link href="/" style={{
-        color: 'white',
-        textDecoration: 'none',
-        marginBottom: '2rem',
-        fontSize: '1rem',
-      }}>
-        ← Back to Home
-      </Link>
-
-      <div style={{
-        background: 'white',
-        borderRadius: '16px',
-        padding: '2.5rem',
-        boxShadow: '0 15px 40px rgba(0, 0, 0, 0.2)',
-        maxWidth: '600px',
-        width: '100%',
-      }}>
-        <h1 style={{
-          fontSize: '2rem',
-          fontWeight: 'bold',
-          marginBottom: '0.5rem',
-          color: '#333',
-        }}>
-          Image Compression
-        </h1>
-        <p style={{
-          color: '#666',
-          marginBottom: '2rem',
-        }}>
-          Compress your images with adjustable quality settings
-        </p>
-
-        <form onSubmit={handleSubmit}>
-          <div style={{ marginBottom: '1.5rem' }}>
-            <label style={{
-              display: 'block',
-              marginBottom: '0.5rem',
-              fontWeight: '500',
-              color: '#333',
-            }}>
-              Upload Image
-            </label>
-            <input
-              type="file"
-              accept="image/*"
-              onChange={(e) => setFile(e.target.files?.[0] || null)}
-              required
-              style={{
-                width: '100%',
-                padding: '0.75rem',
-                border: '2px solid #e5e7eb',
-                borderRadius: '8px',
-                fontSize: '1rem',
-                outline: 'none',
-              }}
-            />
-            {file && (
-              <p style={{
-                marginTop: '0.5rem',
-                fontSize: '0.875rem',
-                color: '#666',
-              }}>
-                Selected: {file.name} ({formatFileSize(file.size)})
-              </p>
-            )}
-          </div>
-
-          <div style={{ marginBottom: '1.5rem' }}>
-            <label style={{
-              display: 'block',
-              marginBottom: '0.5rem',
-              fontWeight: '500',
-              color: '#333',
-            }}>
-              Quality
-            </label>
-            <select
-              value={quality}
-              onChange={(e) => setQuality(e.target.value as 'low' | 'medium' | 'high')}
-              style={{
-                width: '100%',
-                padding: '0.75rem',
-                border: '2px solid #e5e7eb',
-                borderRadius: '8px',
-                fontSize: '1rem',
-                outline: 'none',
-                backgroundColor: 'white',
-              }}
-            >
-              <option value="low">Low (Smaller file size)</option>
-              <option value="medium">Medium (Balanced)</option>
-              <option value="high">High (Better quality)</option>
-            </select>
-          </div>
-
-          <div style={{ marginBottom: '1.5rem' }}>
-            <label style={{
-              display: 'block',
-              marginBottom: '0.5rem',
-              fontWeight: '500',
-              color: '#333',
-            }}>
-              Output Format
-            </label>
-            <select
-              value={format}
-              onChange={(e) => setFormat(e.target.value as 'jpeg' | 'png' | 'webp')}
-              style={{
-                width: '100%',
-                padding: '0.75rem',
-                border: '2px solid #e5e7eb',
-                borderRadius: '8px',
-                fontSize: '1rem',
-                outline: 'none',
-                backgroundColor: 'white',
-              }}
-            >
-              <option value="jpeg">JPEG</option>
-              <option value="png">PNG</option>
-              <option value="webp">WebP</option>
-            </select>
-          </div>
-
-          <button
-            type="submit"
-            disabled={loading || !file}
-            style={{
-              width: '100%',
-              padding: '0.875rem',
-              backgroundColor: (loading || !file) ? '#9ca3af' : '#667eea',
-              color: 'white',
-              border: 'none',
-              borderRadius: '8px',
-              fontSize: '1rem',
-              fontWeight: '600',
-              cursor: (loading || !file) ? 'not-allowed' : 'pointer',
-              transition: 'background-color 0.3s',
-            }}
-            onMouseEnter={(e) => {
-              if (!loading && file) e.currentTarget.style.backgroundColor = '#5568d3'
-            }}
-            onMouseLeave={(e) => {
-              if (!loading && file) e.currentTarget.style.backgroundColor = '#667eea'
-            }}
+    <ToolPage
+      crumb="Image Compress"
+      emoji="📦"
+      title="Image Compress"
+      subtitle="Compress images while maintaining quality."
+    >
+      {!file ? (
+        <Dropzone
+          emoji="🖼️"
+          label="Drag & drop an image, or click to browse"
+          hint="JPG, PNG, WEBP up to 25 MB"
+          accept="image/jpeg,image/png,image/webp"
+          onFiles={onFiles}
+        />
+      ) : (
+        <>
+          <div
+            style={{ marginTop: 24, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}
           >
-            {loading ? 'Compressing...' : 'Compress Image'}
-          </button>
-        </form>
-
-        {error && (
-          <div style={{
-            marginTop: '1.5rem',
-            padding: '1rem',
-            backgroundColor: '#fee2e2',
-            borderRadius: '8px',
-            color: '#dc2626',
-          }}>
-            {error}
+            <PreviewPane
+              label="Original"
+              imageUrl={previewUrl}
+              meta={<span style={{ color: 'var(--muted)' }}>{formatFileSize(file.size)}</span>}
+            />
+            <PreviewPane
+              label="Compressed"
+              accent
+              imageUrl={result ? `${getApiUrl()}/api/v1/download/${result.file_id}` : null}
+              caption="Compressed preview appears here"
+              meta={
+                result ? (
+                  <span style={{ fontWeight: 700, color: 'var(--accent-dark)' }}>
+                    {formatFileSize(result.output_size_kb * 1024)}{' '}
+                    <span style={{ fontWeight: 400, color: 'var(--muted)' }}>
+                      {result.compression_ratio > 0
+                        ? `· ${result.compression_ratio}% smaller`
+                        : '· already optimized'}
+                    </span>
+                  </span>
+                ) : (
+                  <span style={{ color: 'var(--muted)' }}>Pick a quality, then download</span>
+                )
+              }
+            />
           </div>
-        )}
 
-        {result && (
-          <div style={{
-            marginTop: '1.5rem',
-            padding: '1.5rem',
-            backgroundColor: '#f0fdf4',
-            borderRadius: '8px',
-          }}>
-            <h3 style={{
-              fontSize: '1.125rem',
-              fontWeight: '600',
-              marginBottom: '1rem',
-              color: '#16a34a',
-            }}>
-              Compression Complete!
-            </h3>
-            
-            <div style={{ marginBottom: '1rem' }}>
-              <div style={{ marginBottom: '0.5rem', color: '#333' }}>
-                <strong>Input Size:</strong> {result.input_size_kb != null && !isNaN(result.input_size_kb) ? (result.input_size_kb / 1024).toFixed(2) : 'N/A'} MB
-              </div>
-              <div style={{ marginBottom: '0.5rem', color: '#333' }}>
-                <strong>Output Size:</strong> {result.output_size_kb != null && !isNaN(result.output_size_kb) ? (result.output_size_kb / 1024).toFixed(2) : 'N/A'} MB
-              </div>
-              <div style={{ marginBottom: '0.5rem', color: '#333' }}>
-                <strong>Compression Ratio:</strong> {result.compression_ratio.toFixed(2)}%
-              </div>
-              <div style={{ marginBottom: '0.5rem', color: '#333' }}>
-                <strong>Dimensions:</strong> {(() => {
-                  const [width, height] = (result.dimensions || '×').split('x')
-                  return `${width}×${height}`
-                })()}
-              </div>
-              <div style={{ marginBottom: '0.5rem', color: '#333' }}>
-                <strong>Format:</strong> {result.output_format?.toUpperCase() || "N/A"}
-              </div>
+          <div className="pixel-card notch-6" style={{ marginTop: 28, padding: 22, boxShadow: 'none' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+              <span className="label-caps">Quality</span>
+              <span className="label-caps">{quality}%</span>
+            </div>
+            <input
+              type="range"
+              min={10}
+              max={100}
+              value={quality}
+              onChange={(e) => {
+                setQuality(Number(e.target.value))
+                setResult(null)
+              }}
+              style={{ width: '100%', marginTop: 12 }}
+            />
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                fontSize: 11,
+                color: 'var(--faint)',
+                marginTop: 2,
+              }}
+            >
+              <span>Smaller file</span>
+              <span>Higher quality</span>
             </div>
 
-            <button
-              onClick={handleDownload}
-              style={{
-                padding: '0.625rem 1.5rem',
-                backgroundColor: '#16a34a',
-                color: 'white',
-                border: 'none',
-                borderRadius: '6px',
-                fontSize: '0.875rem',
-                fontWeight: '600',
-                cursor: 'pointer',
+            <div className="label-caps" style={{ marginTop: 18 }}>
+              Output format
+            </div>
+            <Chips
+              options={FORMATS.map((f) => ({ value: f, label: f }))}
+              value={format}
+              onChange={(f) => {
+                setFormat(f)
+                setResult(null)
               }}
-              onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#15803d'}
-              onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#16a34a'}
-            >
-              Download Compressed Image
-            </button>
+            />
           </div>
-        )}
-      </div>
-    </div>
+
+          {error && <ErrorPanel message={error} />}
+
+          <ActionRow
+            primaryLabel="⬇ Download compressed image"
+            busyLabel="Compressing..."
+            busy={busy}
+            onPrimary={compress}
+            secondaryLabel="Start over"
+            onSecondary={reset}
+          />
+        </>
+      )}
+    </ToolPage>
   )
 }

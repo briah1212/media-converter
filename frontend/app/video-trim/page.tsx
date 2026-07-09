@@ -1,294 +1,244 @@
 'use client'
 
 import { useState } from 'react'
-import Link from 'next/link'
-import VideoTrimmer from '@/components/VideoTrimmer'
+import ToolPage from '@/components/ui/ToolPage'
+import Dropzone from '@/components/ui/Dropzone'
+import VideoPreview from '@/components/ui/VideoPreview'
+import TrimStats from '@/components/ui/TrimStats'
+import { ErrorPanel, DonePanel } from '@/components/ui/panels'
+import { uploadFile, downloadFile, formatDuration } from '@/lib/api'
+import { loadMediaMeta, MediaMeta } from '@/lib/media'
+
+const THUMB_COUNT = 12
+
+async function generateFilmstrip(file: File, count: number): Promise<string[]> {
+  const url = URL.createObjectURL(file)
+  const video = document.createElement('video')
+  video.preload = 'auto'
+  video.muted = true
+  video.src = url
+
+  await new Promise<void>((resolve, reject) => {
+    video.onloadedmetadata = () => resolve()
+    video.onerror = () => reject(new Error('load failed'))
+  })
+
+  const duration = video.duration
+  const canvas = document.createElement('canvas')
+  canvas.width = 160
+  canvas.height = 90
+  const ctx = canvas.getContext('2d')
+  if (!ctx || !duration) {
+    URL.revokeObjectURL(url)
+    return []
+  }
+
+  const thumbs: string[] = []
+  for (let i = 0; i < count; i++) {
+    const t = ((i + 0.5) / count) * duration
+    await new Promise<void>((resolve) => {
+      video.onseeked = () => resolve()
+      video.currentTime = t
+    })
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
+    thumbs.push(canvas.toDataURL('image/jpeg', 0.5))
+  }
+  URL.revokeObjectURL(url)
+  return thumbs
+}
 
 export default function VideoTrim() {
   const [file, setFile] = useState<File | null>(null)
+  const [previewUrl, setPreviewUrl] = useState('')
+  const [meta, setMeta] = useState<MediaMeta | null>(null)
+  const [thumbs, setThumbs] = useState<string[]>([])
   const [trimStart, setTrimStart] = useState(0)
   const [trimEnd, setTrimEnd] = useState(0)
-  const [outputFormat, setOutputFormat] = useState('mp4')
-  const [loading, setLoading] = useState(false)
-  const [result, setResult] = useState<any>(null)
+  const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
-  const [videoLoaded, setVideoLoaded] = useState(false)
+  const [fileId, setFileId] = useState('')
 
-  const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
-
-  const handleTrimChange = (start: number, end: number) => {
-    setTrimStart(start)
-    setTrimEnd(end)
-  }
-
-  const formatTimeForAPI = (seconds: number): string => {
-    const hrs = Math.floor(seconds / 3600)
-    const mins = Math.floor((seconds % 3600) / 60)
-    const secs = Math.floor(seconds % 60)
-    return `${String(hrs).padStart(2, '0')}:${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`
-  }
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!file) return
-
-    setLoading(true)
+  const onFiles = async (files: File[]) => {
+    const f = files[0]
+    setFile(f)
+    setPreviewUrl(URL.createObjectURL(f))
     setError('')
-    setResult(null)
-
-    const formData = new FormData()
-    formData.append('file', file)
-    formData.append('start_time', formatTimeForAPI(trimStart))
-    formData.append('end_time', formatTimeForAPI(trimEnd))
-    formData.append('output_format', outputFormat)
-
+    setFileId('')
+    setThumbs([])
     try {
-      const response = await fetch(`${API_URL}/api/v1/video/trim`, {
-        method: 'POST',
-        body: formData,
-      })
-
-      if (!response.ok) {
-        const errorData = await response.json()
-        throw new Error(errorData.detail || 'Trim failed')
-      }
-
-      const data = await response.json()
-      setResult(data)
-    } catch (err: any) {
-      setError(err.message || 'An error occurred')
-    } finally {
-      setLoading(false)
+      const m = await loadMediaMeta(f, 'video')
+      setMeta(m)
+      setTrimStart(0)
+      setTrimEnd(Math.floor(m.duration))
+    } catch {
+      setMeta(null)
+    }
+    try {
+      setThumbs(await generateFilmstrip(f, THUMB_COUNT))
+    } catch {
+      setThumbs([])
     }
   }
 
-  const handleDownload = () => {
-    if (result && result.file_id) {
-      window.open(`${API_URL}/api/v1/download/${result.file_id}`, '_blank')
-    }
-  }
-
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const selectedFile = e.target.files?.[0] || null
-    setFile(selectedFile)
-    setVideoLoaded(false)
-    setResult(null)
+  const reset = () => {
+    setFile(null)
+    setPreviewUrl('')
+    setMeta(null)
+    setThumbs([])
+    setTrimStart(0)
+    setTrimEnd(0)
     setError('')
+    setFileId('')
   }
 
-  const calculateDuration = () => {
-    if (!result || !result.duration) return 'N/A'
-    const seconds = Math.floor(result.duration)
-    const mins = Math.floor(seconds / 60)
-    const secs = seconds % 60
-    return `${mins}m ${secs}s`
+  const trim = async () => {
+    if (!file) return
+    setBusy(true)
+    setError('')
+    try {
+      const formData = new FormData()
+      formData.append('file', file)
+      formData.append('start_time', String(trimStart))
+      formData.append('end_time', String(trimEnd))
+      const data = await uploadFile('trim/video', formData)
+      setFileId(data.file_id)
+      downloadFile(data.file_id)
+    } catch (err: any) {
+      setError(err.message || 'Trim failed')
+    } finally {
+      setBusy(false)
+    }
   }
+
+  const durationSec = Math.max(1, Math.floor(meta?.duration || 0))
+  const trimStartPct = (trimStart / durationSec) * 100
+  const trimEndPct = 100 - (trimEnd / durationSec) * 100
 
   return (
-    <div style={{
-      minHeight: '100vh',
-      display: 'flex',
-      flexDirection: 'column',
-      alignItems: 'center',
-      padding: '2rem',
-    }}>
-      <Link href="/" style={{
-        color: 'white',
-        textDecoration: 'none',
-        marginBottom: '2rem',
-        fontSize: '1rem',
-      }}>
-        ← Back to Home
-      </Link>
+    <ToolPage
+      crumb="Video Trim"
+      emoji="✂️"
+      title="Video Trim"
+      subtitle="Trim and cut video files down to the part you need."
+    >
+      {!file ? (
+        <Dropzone
+          emoji="🎬"
+          label="Drag & drop a video, or click to browse"
+          hint="MP4, MOV, WEBM up to 2 GB"
+          accept="video/*"
+          onFiles={onFiles}
+        />
+      ) : (
+        <>
+          <VideoPreview
+            src={previewUrl}
+            leftBadge={`${file.name}${meta?.width ? ` · ${meta.width}×${meta.height}` : ''}`}
+            rightBadge={`${formatDuration(trimStart)} / ${formatDuration(meta?.duration || 0)}`}
+            maxHeight={360}
+            style={{ marginTop: 24 }}
+          />
 
-      <div style={{
-        background: 'white',
-        borderRadius: '16px',
-        padding: '2.5rem',
-        boxShadow: '0 15px 40px rgba(0, 0, 0, 0.2)',
-        maxWidth: '900px',
-        width: '100%',
-      }}>
-        <h1 style={{
-          fontSize: '2rem',
-          fontWeight: 'bold',
-          marginBottom: '0.5rem',
-          color: '#333',
-        }}>
-          Trim Video with Timeline
-        </h1>
-        <p style={{
-          color: '#666',
-          marginBottom: '2rem',
-        }}>
-          Upload a video, use the interactive timeline to select the trim range, and download the result
-        </p>
-
-        <form onSubmit={handleSubmit}>
-          <div style={{ marginBottom: '1.5rem' }}>
-            <label style={{
-              display: 'block',
-              marginBottom: '0.5rem',
-              fontWeight: '500',
-              color: '#333',
-            }}>
-              Upload Video File
-            </label>
-            <input
-              type="file"
-              accept="video/*"
-              onChange={handleFileChange}
-              required
-              style={{
-                width: '100%',
-                padding: '0.75rem',
-                border: '2px solid #e5e7eb',
-                borderRadius: '8px',
-                fontSize: '1rem',
-                outline: 'none',
-              }}
-            />
-            {file && (
-              <p style={{
-                marginTop: '0.5rem',
-                fontSize: '0.875rem',
-                color: '#666',
-              }}>
-                Selected: {file.name} ({(file.size / 1024 / 1024).toFixed(2)} MB)
-              </p>
-            )}
-          </div>
-
-          {/* Video Trimmer Component */}
-          {file && (
-            <VideoTrimmer
-              videoFile={file}
-              onTrimChange={handleTrimChange}
-              onVideoLoaded={() => setVideoLoaded(true)}
-            />
-          )}
-
-          {/* Output Format */}
-          {file && (
-            <div style={{ marginBottom: '1.5rem' }}>
-              <label style={{
-                display: 'block',
-                marginBottom: '0.5rem',
-                fontWeight: '500',
-                color: '#333',
-              }}>
-                Output Format
-              </label>
-              <select
-                value={outputFormat}
-                onChange={(e) => setOutputFormat(e.target.value)}
-                style={{
-                  width: '100%',
-                  padding: '0.75rem',
-                  border: '2px solid #e5e7eb',
-                  borderRadius: '8px',
-                  fontSize: '1rem',
-                  outline: 'none',
-                  backgroundColor: 'white',
-                }}
-              >
-                <option value="mp4">MP4 (most compatible)</option>
-                <option value="webm">WebM (web optimized)</option>
-                <option value="mov">MOV (Apple format)</option>
-              </select>
-            </div>
-          )}
-
-          <button
-            type="submit"
-            disabled={loading || !file || !videoLoaded}
+          <div
             style={{
-              width: '100%',
-              padding: '0.875rem',
-              backgroundColor: (loading || !file || !videoLoaded) ? '#9ca3af' : '#667eea',
-              color: 'white',
-              border: 'none',
-              borderRadius: '8px',
-              fontSize: '1rem',
-              fontWeight: '600',
-              cursor: (loading || !file || !videoLoaded) ? 'not-allowed' : 'pointer',
-              transition: 'background-color 0.3s',
-            }}
-            onMouseEnter={(e) => {
-              if (!loading && file && videoLoaded) e.currentTarget.style.backgroundColor = '#5568d3'
-            }}
-            onMouseLeave={(e) => {
-              if (!loading && file && videoLoaded) e.currentTarget.style.backgroundColor = '#667eea'
+              marginTop: 16,
+              position: 'relative',
+              height: 64,
+              background: 'var(--tile-soft)',
+              border: '2px solid var(--border)',
             }}
           >
-            {loading ? 'Trimming Video...' : !file ? 'Select a Video' : !videoLoaded ? 'Loading Video...' : 'Trim Video'}
-          </button>
-        </form>
-
-        {error && (
-          <div style={{
-            marginTop: '1.5rem',
-            padding: '1rem',
-            backgroundColor: '#fee2e2',
-            borderRadius: '8px',
-            color: '#dc2626',
-          }}>
-            {error}
-          </div>
-        )}
-
-        {result && (
-          <div style={{
-            marginTop: '1.5rem',
-            padding: '1.5rem',
-            backgroundColor: '#f0fdf4',
-            borderRadius: '8px',
-          }}>
-            <h3 style={{
-              fontSize: '1.125rem',
-              fontWeight: '600',
-              marginBottom: '1rem',
-              color: '#16a34a',
-            }}>
-              Trim Complete!
-            </h3>
-            <div style={{
-              marginBottom: '1rem',
-              color: '#333',
-            }}>
-              <p style={{ marginBottom: '0.5rem' }}>
-                <strong>Trimmed Duration:</strong> {calculateDuration()}
-              </p>
-              <p style={{ marginBottom: '0.5rem' }}>
-                <strong>File Size:</strong> {result.file_size ? (result.file_size / 1024 / 1024).toFixed(2) : 'N/A'} MB
-              </p>
-              <p style={{ marginBottom: '0.5rem' }}>
-                <strong>Time Range:</strong> {formatTimeForAPI(trimStart)} to {formatTimeForAPI(trimEnd)}
-              </p>
-              <p style={{ marginBottom: '0.5rem' }}>
-                <strong>Output Format:</strong> {outputFormat.toUpperCase()}
-              </p>
+            <div style={{ position: 'absolute', inset: 0, display: 'flex' }}>
+              {Array.from({ length: THUMB_COUNT }).map((_, i) =>
+                thumbs[i] ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    key={i}
+                    src={thumbs[i]}
+                    alt=""
+                    style={{
+                      flex: 1,
+                      minWidth: 0,
+                      objectFit: 'cover',
+                      borderRight: '1px solid var(--border)',
+                      height: '100%',
+                    }}
+                  />
+                ) : (
+                  <div
+                    key={i}
+                    className="stripes-fine"
+                    style={{ flex: 1, borderRight: '1px solid var(--border)' }}
+                  />
+                )
+              )}
             </div>
-            <button
-              onClick={handleDownload}
+            <div
               style={{
-                padding: '0.625rem 1.5rem',
-                backgroundColor: '#16a34a',
-                color: 'white',
-                border: 'none',
-                borderRadius: '6px',
-                fontSize: '0.875rem',
-                fontWeight: '600',
-                cursor: 'pointer',
+                position: 'absolute',
+                top: 0,
+                bottom: 0,
+                background: 'oklch(58% 0.135 250 / 0.18)',
+                borderLeft: '4px solid var(--accent)',
+                borderRight: '4px solid var(--accent)',
+                left: `${trimStartPct}%`,
+                right: `${trimEndPct}%`,
               }}
-              onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#15803d'}
-              onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#16a34a'}
-            >
-              Download Trimmed Video
-            </button>
+            />
           </div>
-        )}
-      </div>
-    </div>
+          <input
+            type="range"
+            min={0}
+            max={durationSec}
+            value={trimStart}
+            onChange={(e) => {
+              setTrimStart(Math.min(Number(e.target.value), trimEnd - 1))
+              setFileId('')
+            }}
+            style={{ width: '100%', marginTop: 10 }}
+          />
+          <input
+            type="range"
+            min={0}
+            max={durationSec}
+            value={trimEnd}
+            onChange={(e) => {
+              setTrimEnd(Math.max(Number(e.target.value), trimStart + 1))
+              setFileId('')
+            }}
+            style={{ width: '100%', marginTop: 4, accentColor: 'var(--accent-dark)' }}
+          />
+
+          <TrimStats
+            startLabel={formatDuration(trimStart)}
+            endLabel={formatDuration(trimEnd)}
+            clipLabel={formatDuration(Math.max(0, trimEnd - trimStart))}
+          />
+
+          {error && <ErrorPanel message={error} />}
+
+          <div style={{ marginTop: 22, display: 'flex', gap: 12, alignItems: 'center' }}>
+            {fileId ? (
+              <DonePanel
+                filename={file.name}
+                meta={`${formatDuration(Math.max(0, trimEnd - trimStart))} clip · ready`}
+                onDownload={() => downloadFile(fileId)}
+                onReset={reset}
+                resetLabel="Trim another"
+              />
+            ) : (
+              <>
+                <button className="btn-primary" onClick={trim} disabled={busy || !meta}>
+                  {busy ? 'Trimming...' : '✂️ Trim & download'}
+                </button>
+                <button className="btn-secondary" onClick={reset} disabled={busy}>
+                  Choose different file
+                </button>
+              </>
+            )}
+          </div>
+        </>
+      )}
+    </ToolPage>
   )
 }

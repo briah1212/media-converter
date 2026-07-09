@@ -1,386 +1,235 @@
 'use client'
 
 import { useState } from 'react'
-import Link from 'next/link'
+import ToolPage from '@/components/ui/ToolPage'
+import Dropzone from '@/components/ui/Dropzone'
+import Chips from '@/components/ui/Chips'
+import { ErrorPanel, DonePanel } from '@/components/ui/panels'
+import { uploadFile, downloadFile, formatFileSize } from '@/lib/api'
 
-export default function PDFFromImages() {
-  const [files, setFiles] = useState<File[]>([])
-  const [outputFilename, setOutputFilename] = useState('')
+interface Entry {
+  id: number
+  file: File
+  previewUrl: string
+}
+
+const PAGE_SIZES = [
+  { label: 'A4', value: 'a4' },
+  { label: 'Letter', value: 'letter' },
+  { label: 'Fit to image', value: 'fit' },
+]
+
+let nextId = 1
+
+export default function ImagesToPdf() {
+  const [entries, setEntries] = useState<Entry[]>([])
   const [pageSize, setPageSize] = useState('A4')
-  const [loading, setLoading] = useState(false)
-  const [result, setResult] = useState<any>(null)
+  const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const [result, setResult] = useState<{ file_id: string; page_count: number; file_size_kb: number } | null>(null)
 
-  const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
-
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files) {
-      const fileArray = Array.from(e.target.files)
-      setFiles(fileArray)
-    }
-  }
-
-  const moveFile = (index: number, direction: 'up' | 'down') => {
-    if (direction === 'up' && index > 0) {
-      const newFiles = [...files]
-      ;[newFiles[index - 1], newFiles[index]] = [newFiles[index], newFiles[index - 1]]
-      setFiles(newFiles)
-    } else if (direction === 'down' && index < files.length - 1) {
-      const newFiles = [...files]
-      ;[newFiles[index], newFiles[index + 1]] = [newFiles[index + 1], newFiles[index]]
-      setFiles(newFiles)
-    }
-  }
-
-  const removeFile = (index: number) => {
-    setFiles(files.filter((_, i) => i !== index))
-  }
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (files.length === 0) return
-
-    setLoading(true)
-    setError('')
+  const onFiles = (files: File[]) => {
+    setEntries((prev) => [
+      ...prev,
+      ...files.map((file) => ({ id: nextId++, file, previewUrl: URL.createObjectURL(file) })),
+    ])
     setResult(null)
+    setError('')
+  }
 
-    const formData = new FormData()
-    files.forEach((file) => {
-      formData.append('files', file)
+  const move = (id: number, dir: -1 | 1) => {
+    setEntries((prev) => {
+      const i = prev.findIndex((e) => e.id === id)
+      const j = i + dir
+      if (i === -1 || j < 0 || j >= prev.length) return prev
+      const next = [...prev]
+      ;[next[i], next[j]] = [next[j], next[i]]
+      return next
     })
-    if (outputFilename) {
-      formData.append('output_filename', outputFilename)
-    }
-    formData.append('page_size', pageSize)
+    setResult(null)
+  }
 
+  const remove = (id: number) => {
+    setEntries((prev) => prev.filter((e) => e.id !== id))
+    setResult(null)
+  }
+
+  const combine = async () => {
+    if (entries.length === 0) return
+    setBusy(true)
+    setError('')
     try {
-      const response = await fetch(`${API_URL}/api/v1/pdf/from-images`, {
-        method: 'POST',
-        body: formData,
-      })
-
-      if (!response.ok) {
-        const errorData = await response.json()
-        throw new Error(errorData.detail || 'Conversion failed')
-      }
-
-      const data = await response.json()
+      const formData = new FormData()
+      entries.forEach((e) => formData.append('files', e.file))
+      formData.append('page_size', PAGE_SIZES.find((p) => p.label === pageSize)?.value || 'fit')
+      const data = await uploadFile('pdf/from-images', formData)
       setResult(data)
+      downloadFile(data.file_id)
     } catch (err: any) {
-      setError(err.message || 'An error occurred')
+      setError(err.message || 'PDF creation failed')
     } finally {
-      setLoading(false)
+      setBusy(false)
     }
   }
-
-  const handleDownload = () => {
-    if (result && result.file_id) {
-      window.open(`${API_URL}/api/v1/download/${result.file_id}`, '_blank')
-    }
-  }
-
-  const totalSize = files.reduce((sum, file) => sum + file.size, 0)
 
   return (
-    <div style={{
-      minHeight: '100vh',
-      display: 'flex',
-      flexDirection: 'column',
-      alignItems: 'center',
-      padding: '2rem',
-    }}>
-      <Link href="/" style={{
-        color: 'white',
-        textDecoration: 'none',
-        marginBottom: '2rem',
-        fontSize: '1rem',
-      }}>
-        ← Back to Home
-      </Link>
+    <ToolPage
+      crumb="Images to PDF"
+      emoji="📸"
+      title="Images to PDF"
+      subtitle="Combine images into a single PDF document, in order."
+    >
+      <Dropzone
+        emoji="🖼️"
+        label="Drag & drop images here, or click to add another"
+        hint="Reorder with the arrows below — pages follow this order"
+        accept="image/*"
+        multiple
+        compact
+        onFiles={onFiles}
+      />
 
-      <div style={{
-        background: 'white',
-        borderRadius: '16px',
-        padding: '2.5rem',
-        boxShadow: '0 15px 40px rgba(0, 0, 0, 0.2)',
-        maxWidth: '700px',
-        width: '100%',
-      }}>
-        <h1 style={{
-          fontSize: '2rem',
-          fontWeight: 'bold',
-          marginBottom: '0.5rem',
-          color: '#333',
-        }}>
-          Images to PDF
-        </h1>
-        <p style={{
-          color: '#666',
-          marginBottom: '2rem',
-        }}>
-          Convert multiple images into a single PDF document
-        </p>
-
-        <form onSubmit={handleSubmit}>
-          <div style={{ marginBottom: '1.5rem' }}>
-            <label style={{
-              display: 'block',
-              marginBottom: '0.5rem',
-              fontWeight: '500',
-              color: '#333',
-            }}>
-              Upload Images
-            </label>
-            <input
-              type="file"
-              accept="image/*"
-              multiple
-              onChange={handleFileChange}
-              required
-              style={{
-                width: '100%',
-                padding: '0.75rem',
-                border: '2px solid #e5e7eb',
-                borderRadius: '8px',
-                fontSize: '1rem',
-                outline: 'none',
-              }}
-            />
-            {files.length > 0 && (
-              <div style={{
-                marginTop: '1rem',
-                padding: '1rem',
-                backgroundColor: '#f9fafb',
-                borderRadius: '8px',
-                border: '1px solid #e5e7eb',
-              }}>
-                <p style={{
-                  fontSize: '0.875rem',
-                  fontWeight: '600',
-                  marginBottom: '0.5rem',
-                  color: '#333',
-                }}>
-                  {files.length} image{files.length !== 1 ? 's' : ''} selected ({(totalSize / 1024 / 1024).toFixed(2)} MB)
-                </p>
-                <div style={{ maxHeight: '200px', overflowY: 'auto' }}>
-                  {files.map((file, index) => (
-                    <div key={index} style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                      padding: '0.5rem',
-                      marginBottom: '0.5rem',
-                      backgroundColor: 'white',
-                      borderRadius: '6px',
-                      border: '1px solid #e5e7eb',
-                    }}>
-                      <span style={{
-                        fontSize: '0.875rem',
-                        color: '#666',
-                        flex: 1,
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                        whiteSpace: 'nowrap',
-                      }}>
-                        {index + 1}. {file.name}
-                      </span>
-                      <div style={{ display: 'flex', gap: '0.25rem' }}>
-                        <button
-                          type="button"
-                          onClick={() => moveFile(index, 'up')}
-                          disabled={index === 0}
-                          style={{
-                            padding: '0.25rem 0.5rem',
-                            backgroundColor: index === 0 ? '#e5e7eb' : '#667eea',
-                            color: index === 0 ? '#9ca3af' : 'white',
-                            border: 'none',
-                            borderRadius: '4px',
-                            fontSize: '0.75rem',
-                            cursor: index === 0 ? 'not-allowed' : 'pointer',
-                          }}
-                        >
-                          ↑
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => moveFile(index, 'down')}
-                          disabled={index === files.length - 1}
-                          style={{
-                            padding: '0.25rem 0.5rem',
-                            backgroundColor: index === files.length - 1 ? '#e5e7eb' : '#667eea',
-                            color: index === files.length - 1 ? '#9ca3af' : 'white',
-                            border: 'none',
-                            borderRadius: '4px',
-                            fontSize: '0.75rem',
-                            cursor: index === files.length - 1 ? 'not-allowed' : 'pointer',
-                          }}
-                        >
-                          ↓
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => removeFile(index)}
-                          style={{
-                            padding: '0.25rem 0.5rem',
-                            backgroundColor: '#ef4444',
-                            color: 'white',
-                            border: 'none',
-                            borderRadius: '4px',
-                            fontSize: '0.75rem',
-                            cursor: 'pointer',
-                          }}
-                        >
-                          ✕
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
+      {entries.length > 0 && (
+        <div
+          style={{
+            marginTop: 20,
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))',
+            gap: 12,
+          }}
+        >
+          {entries.map((entry, i) => (
+            <div
+              key={entry.id}
+              style={{ background: 'var(--surface)', border: '2px solid var(--border)', padding: 10 }}
+            >
+              <div
+                className="stripes-fine"
+                style={{
+                  aspectRatio: '3/4',
+                  border: '1px solid var(--border)',
+                  position: 'relative',
+                  overflow: 'hidden',
+                }}
+              >
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={entry.previewUrl}
+                  alt={entry.file.name}
+                  style={{
+                    position: 'absolute',
+                    inset: 0,
+                    width: '100%',
+                    height: '100%',
+                    objectFit: 'cover',
+                  }}
+                />
+                <span
+                  className="font-pixel"
+                  style={{
+                    position: 'absolute',
+                    top: 4,
+                    left: 4,
+                    fontSize: 11,
+                    color: 'var(--accent-dark)',
+                    background: 'white',
+                    padding: '2px 6px',
+                    border: '1px solid var(--border)',
+                  }}
+                >
+                  {i + 1}
+                </span>
               </div>
-            )}
-          </div>
-
-          <div style={{ marginBottom: '1.5rem' }}>
-            <label style={{
-              display: 'block',
-              marginBottom: '0.5rem',
-              fontWeight: '500',
-              color: '#333',
-            }}>
-              Output Filename (optional)
-            </label>
-            <input
-              type="text"
-              value={outputFilename}
-              onChange={(e) => setOutputFilename(e.target.value)}
-              placeholder="e.g., my-document.pdf"
-              style={{
-                width: '100%',
-                padding: '0.75rem',
-                border: '2px solid #e5e7eb',
-                borderRadius: '8px',
-                fontSize: '1rem',
-                outline: 'none',
-              }}
-            />
-          </div>
-
-          <div style={{ marginBottom: '1.5rem' }}>
-            <label style={{
-              display: 'block',
-              marginBottom: '0.5rem',
-              fontWeight: '500',
-              color: '#333',
-            }}>
-              Page Size
-            </label>
-            <select
-              value={pageSize}
-              onChange={(e) => setPageSize(e.target.value)}
-              style={{
-                width: '100%',
-                padding: '0.75rem',
-                border: '2px solid #e5e7eb',
-                borderRadius: '8px',
-                fontSize: '1rem',
-                outline: 'none',
-                backgroundColor: 'white',
-              }}
-            >
-              <option value="A4">A4</option>
-              <option value="Letter">Letter</option>
-              <option value="Custom">Custom</option>
-            </select>
-          </div>
-
-          <button
-            type="submit"
-            disabled={loading || files.length === 0}
-            style={{
-              width: '100%',
-              padding: '0.875rem',
-              backgroundColor: (loading || files.length === 0) ? '#9ca3af' : '#667eea',
-              color: 'white',
-              border: 'none',
-              borderRadius: '8px',
-              fontSize: '1rem',
-              fontWeight: '600',
-              cursor: (loading || files.length === 0) ? 'not-allowed' : 'pointer',
-              transition: 'background-color 0.3s',
-            }}
-            onMouseEnter={(e) => {
-              if (!loading && files.length > 0) e.currentTarget.style.backgroundColor = '#5568d3'
-            }}
-            onMouseLeave={(e) => {
-              if (!loading && files.length > 0) e.currentTarget.style.backgroundColor = '#667eea'
-            }}
-          >
-            {loading ? 'Creating PDF...' : 'Create PDF'}
-          </button>
-        </form>
-
-        {error && (
-          <div style={{
-            marginTop: '1.5rem',
-            padding: '1rem',
-            backgroundColor: '#fee2e2',
-            borderRadius: '8px',
-            color: '#dc2626',
-          }}>
-            {error}
-          </div>
-        )}
-
-        {result && (
-          <div style={{
-            marginTop: '1.5rem',
-            padding: '1.5rem',
-            backgroundColor: '#f0fdf4',
-            borderRadius: '8px',
-          }}>
-            <h3 style={{
-              fontSize: '1.125rem',
-              fontWeight: '600',
-              marginBottom: '0.5rem',
-              color: '#16a34a',
-            }}>
-              PDF Created Successfully!
-            </h3>
-            <div style={{
-              marginBottom: '1rem',
-              color: '#333',
-            }}>
-              {result.pages && (
-                <p style={{ marginBottom: '0.25rem' }}>
-                  <strong>Pages:</strong> {result.pages}
-                </p>
-              )}
-              {result.file_size && (
-                <p>
-                  <strong>File Size:</strong> {(result.file_size / 1024 / 1024).toFixed(2)} MB
-                </p>
-              )}
+              <div
+                style={{
+                  fontSize: 11,
+                  marginTop: 6,
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                  fontWeight: 600,
+                }}
+              >
+                {entry.file.name}
+              </div>
+              <div style={{ display: 'flex', gap: 4, marginTop: 6 }}>
+                <button
+                  onClick={() => move(entry.id, -1)}
+                  className="btn-secondary"
+                  style={{ flex: 1, height: 24, padding: 0, fontSize: 11 }}
+                >
+                  ↑
+                </button>
+                <button
+                  onClick={() => move(entry.id, 1)}
+                  className="btn-secondary"
+                  style={{ flex: 1, height: 24, padding: 0, fontSize: 11 }}
+                >
+                  ↓
+                </button>
+                <button
+                  onClick={() => remove(entry.id)}
+                  className="btn-secondary"
+                  style={{ flex: 1, height: 24, padding: 0, fontSize: 11, color: 'oklch(50% 0.15 25)' }}
+                >
+                  ✕
+                </button>
+              </div>
             </div>
-            <button
-              onClick={handleDownload}
-              style={{
-                padding: '0.625rem 1.5rem',
-                backgroundColor: '#16a34a',
-                color: 'white',
-                border: 'none',
-                borderRadius: '6px',
-                fontSize: '0.875rem',
-                fontWeight: '600',
-                cursor: 'pointer',
-              }}
-              onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#15803d'}
-              onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#16a34a'}
-            >
-              Download PDF
-            </button>
-          </div>
-        )}
+          ))}
+        </div>
+      )}
+
+      <div className="pixel-card notch-6" style={{ marginTop: 24, padding: 20, boxShadow: 'none' }}>
+        <div className="label-caps">Page size</div>
+        <Chips
+          options={PAGE_SIZES.map((p) => ({ value: p.label, label: p.label }))}
+          value={pageSize}
+          onChange={(p) => {
+            setPageSize(p)
+            setResult(null)
+          }}
+          style={{ marginTop: 10 }}
+        />
       </div>
-    </div>
+
+      {entries.length > 0 && (
+        <div
+          style={{
+            marginTop: 24,
+            background: 'var(--tile)',
+            border: '2px solid var(--accent-soft)',
+            padding: '16px 20px',
+          }}
+        >
+          <div style={{ fontWeight: 700, fontSize: 14, color: 'var(--accent-dark)' }}>
+            combined-document.pdf · {entries.length} pages
+          </div>
+        </div>
+      )}
+
+      {error && <ErrorPanel message={error} />}
+
+      {entries.length > 0 && (
+        <div style={{ marginTop: 22 }}>
+          {result ? (
+            <DonePanel
+              filename="combined-document.pdf"
+              meta={`${result.page_count || entries.length} pages · ${formatFileSize(result.file_size_kb * 1024)} · ready`}
+              onDownload={() => downloadFile(result.file_id)}
+              onReset={() => {
+                setEntries([])
+                setResult(null)
+              }}
+              resetLabel="Create another"
+            />
+          ) : (
+            <button className="btn-primary" onClick={combine} disabled={busy}>
+              {busy ? 'Creating PDF...' : '📸 Create PDF & download'}
+            </button>
+          )}
+        </div>
+      )}
+    </ToolPage>
   )
 }

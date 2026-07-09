@@ -1,399 +1,211 @@
 'use client'
 
 import { useState } from 'react'
-import Link from 'next/link'
+import ToolPage from '@/components/ui/ToolPage'
+import Dropzone from '@/components/ui/Dropzone'
+import FileInfoCard from '@/components/ui/FileInfoCard'
+import TrimStats from '@/components/ui/TrimStats'
+import { ErrorPanel, DonePanel } from '@/components/ui/panels'
+import { uploadFile, downloadFile, formatFileSize, formatDuration } from '@/lib/api'
+import { loadMediaMeta } from '@/lib/media'
 
-export default function AudioTrim() {
+const FALLBACK_WAVE = Array.from({ length: 60 }, (_, i) => 20 + Math.round(Math.abs(Math.sin(i * 0.7)) * 70))
+
+async function computePeaks(file: File, buckets = 60): Promise<number[]> {
+  const ctx = new AudioContext()
+  try {
+    const buffer = await ctx.decodeAudioData(await file.arrayBuffer())
+    const data = buffer.getChannelData(0)
+    const bucketSize = Math.floor(data.length / buckets)
+    const peaks: number[] = []
+    for (let i = 0; i < buckets; i++) {
+      let max = 0
+      const start = i * bucketSize
+      for (let j = start; j < start + bucketSize; j += 32) {
+        const v = Math.abs(data[j])
+        if (v > max) max = v
+      }
+      peaks.push(Math.max(8, Math.round(max * 100)))
+    }
+    return peaks
+  } finally {
+    ctx.close()
+  }
+}
+
+export default function TrimAudio() {
   const [file, setFile] = useState<File | null>(null)
-  const [startTime, setStartTime] = useState('00:00:00')
-  const [endTime, setEndTime] = useState('00:00:00')
-  const [loading, setLoading] = useState(false)
-  const [result, setResult] = useState<any>(null)
+  const [duration, setDuration] = useState(0)
+  const [waveBars, setWaveBars] = useState<number[]>(FALLBACK_WAVE)
+  const [trimStart, setTrimStart] = useState(0)
+  const [trimEnd, setTrimEnd] = useState(0)
+  const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const [fileId, setFileId] = useState('')
 
-  const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
-
-  const formatFileSize = (bytes: number): string => {
-    if (bytes === 0) return '0 Bytes'
-    const k = 1024
-    const sizes = ['Bytes', 'KB', 'MB', 'GB']
-    const i = Math.floor(Math.log(bytes) / Math.log(k))
-    return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i]
-  }
-
-  const validateTimeFormat = (time: string): boolean => {
-    const timeRegex = /^([0-9]{2}):([0-5][0-9]):([0-5][0-9])$/
-    return timeRegex.test(time)
-  }
-
-  const timeToSeconds = (time: string): number => {
-    const [hours, minutes, seconds] = time.split(':').map(Number)
-    return hours * 3600 + minutes * 60 + seconds
-  }
-
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const selectedFile = e.target.files?.[0]
-    if (selectedFile) {
-      setFile(selectedFile)
-      setError('')
-      setResult(null)
-    }
-  }
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!file) {
-      setError('Please select an audio file')
-      return
-    }
-
-    if (!validateTimeFormat(startTime)) {
-      setError('Invalid start time format. Use HH:MM:SS (e.g., 00:01:30)')
-      return
-    }
-
-    if (!validateTimeFormat(endTime)) {
-      setError('Invalid end time format. Use HH:MM:SS (e.g., 00:03:45)')
-      return
-    }
-
-    const startSeconds = timeToSeconds(startTime)
-    const endSeconds = timeToSeconds(endTime)
-
-    if (endSeconds <= startSeconds) {
-      setError('End time must be greater than start time')
-      return
-    }
-
-    setLoading(true)
+  const onFiles = async (files: File[]) => {
+    const f = files[0]
+    setFile(f)
     setError('')
-    setResult(null)
+    setFileId('')
+    try {
+      const meta = await loadMediaMeta(f, 'audio')
+      setDuration(meta.duration)
+      setTrimStart(0)
+      setTrimEnd(Math.floor(meta.duration))
+    } catch {
+      setDuration(0)
+    }
+    try {
+      setWaveBars(await computePeaks(f))
+    } catch {
+      setWaveBars(FALLBACK_WAVE)
+    }
+  }
 
+  const reset = () => {
+    setFile(null)
+    setDuration(0)
+    setWaveBars(FALLBACK_WAVE)
+    setTrimStart(0)
+    setTrimEnd(0)
+    setError('')
+    setFileId('')
+  }
+
+  const trim = async () => {
+    if (!file) return
+    setBusy(true)
+    setError('')
     try {
       const formData = new FormData()
       formData.append('file', file)
-      formData.append('start_time', startTime)
-      formData.append('end_time', endTime)
-
-      const response = await fetch(`${API_URL}/api/v1/audio/trim`, {
-        method: 'POST',
-        body: formData,
-      })
-
-      if (!response.ok) {
-        const errorData = await response.json()
-        throw new Error(errorData.detail || 'Trimming failed')
-      }
-
-      const data = await response.json()
-      setResult(data)
-      setFile(null)
-      setStartTime('00:00:00')
-      setEndTime('00:00:00')
+      formData.append('start_time', String(trimStart))
+      formData.append('end_time', String(trimEnd))
+      const data = await uploadFile('audio/trim', formData)
+      setFileId(data.file_id)
+      downloadFile(data.file_id)
     } catch (err: any) {
-      setError(err.message || 'An error occurred')
+      setError(err.message || 'Trim failed')
     } finally {
-      setLoading(false)
+      setBusy(false)
     }
   }
 
-  const handleReset = () => {
-    setFile(null)
-    setResult(null)
-    setError('')
-    setStartTime('00:00:00')
-    setEndTime('00:00:00')
-  }
+  const durationSec = Math.max(1, Math.floor(duration))
+  const trimStartPct = (trimStart / durationSec) * 100
+  const trimEndPct = 100 - (trimEnd / durationSec) * 100
+
+  const metaLine = [duration ? formatDuration(duration) : null, file ? formatFileSize(file.size) : null]
+    .filter(Boolean)
+    .join(' · ')
 
   return (
-    <div style={{
-      minHeight: '100vh',
-      display: 'flex',
-      flexDirection: 'column',
-      alignItems: 'center',
-      padding: '2rem',
-    }}>
-      <Link href="/" style={{
-        color: 'white',
-        textDecoration: 'none',
-        marginBottom: '2rem',
-        fontSize: '1rem',
-      }}>
-        ← Back to Home
-      </Link>
+    <ToolPage
+      crumb="Trim Audio"
+      emoji="✂️"
+      title="Trim Audio"
+      subtitle="Cut an audio file down to just the part you need."
+    >
+      {!file ? (
+        <Dropzone
+          emoji="🎵"
+          label="Drag & drop an audio file, or click to browse"
+          hint="MP3, WAV, M4A up to 200 MB"
+          accept="audio/*"
+          onFiles={onFiles}
+        />
+      ) : (
+        <>
+          <FileInfoCard emoji="🎧" name={file.name} meta={metaLine} onRemove={reset} />
 
-      <div style={{
-        background: 'white',
-        borderRadius: '16px',
-        padding: '2.5rem',
-        boxShadow: '0 15px 40px rgba(0, 0, 0, 0.2)',
-        maxWidth: '600px',
-        width: '100%',
-      }}>
-        <h1 style={{
-          fontSize: '2rem',
-          fontWeight: 'bold',
-          marginBottom: '0.5rem',
-          color: '#333',
-        }}>
-          Trim Audio File
-        </h1>
-        <p style={{
-          color: '#666',
-          marginBottom: '2rem',
-        }}>
-          Cut your audio file by specifying start and end times
-        </p>
-
-        {!result ? (
-          <form onSubmit={handleSubmit}>
-            <div style={{ marginBottom: '1.5rem' }}>
-              <label style={{
-                display: 'block',
-                marginBottom: '0.5rem',
-                fontWeight: '500',
-                color: '#333',
-              }}>
-                Select Audio File
-              </label>
-              <input
-                type="file"
-                onChange={handleFileChange}
-                accept=".mp3,.aac,.m4a,.wav,.ogg,.flac"
-                style={{
-                  width: '100%',
-                  padding: '0.75rem',
-                  border: '2px solid #e5e7eb',
-                  borderRadius: '8px',
-                  fontSize: '1rem',
-                  outline: 'none',
-                  cursor: 'pointer',
-                }}
-              />
-              {file && (
-                <div style={{
-                  marginTop: '0.75rem',
-                  padding: '0.75rem',
-                  backgroundColor: '#f3f4f6',
-                  borderRadius: '6px',
-                  fontSize: '0.875rem',
-                  color: '#333',
-                }}>
-                  <strong>{file.name}</strong> ({formatFileSize(file.size)})
-                </div>
-              )}
-            </div>
-
-            <div style={{ marginBottom: '1.5rem' }}>
-              <label style={{
-                display: 'block',
-                marginBottom: '0.5rem',
-                fontWeight: '500',
-                color: '#333',
-              }}>
-                Start Time
-              </label>
-              <input
-                type="text"
-                value={startTime}
-                onChange={(e) => setStartTime(e.target.value)}
-                placeholder="00:00:00"
-                pattern="[0-9]{2}:[0-5][0-9]:[0-5][0-9]"
-                required
-                style={{
-                  width: '100%',
-                  padding: '0.75rem',
-                  border: '2px solid #e5e7eb',
-                  borderRadius: '8px',
-                  fontSize: '1rem',
-                  outline: 'none',
-                  transition: 'border-color 0.3s',
-                  fontFamily: 'monospace',
-                }}
-                onFocus={(e) => e.currentTarget.style.borderColor = '#667eea'}
-                onBlur={(e) => e.currentTarget.style.borderColor = '#e5e7eb'}
-              />
-              <p style={{
-                marginTop: '0.5rem',
-                fontSize: '0.75rem',
-                color: '#666',
-              }}>
-                Format: HH:MM:SS (e.g., 00:01:30 for 1 minute 30 seconds)
-              </p>
-            </div>
-
-            <div style={{ marginBottom: '1.5rem' }}>
-              <label style={{
-                display: 'block',
-                marginBottom: '0.5rem',
-                fontWeight: '500',
-                color: '#333',
-              }}>
-                End Time
-              </label>
-              <input
-                type="text"
-                value={endTime}
-                onChange={(e) => setEndTime(e.target.value)}
-                placeholder="00:00:00"
-                pattern="[0-9]{2}:[0-5][0-9]:[0-5][0-9]"
-                required
-                style={{
-                  width: '100%',
-                  padding: '0.75rem',
-                  border: '2px solid #e5e7eb',
-                  borderRadius: '8px',
-                  fontSize: '1rem',
-                  outline: 'none',
-                  transition: 'border-color 0.3s',
-                  fontFamily: 'monospace',
-                }}
-                onFocus={(e) => e.currentTarget.style.borderColor = '#667eea'}
-                onBlur={(e) => e.currentTarget.style.borderColor = '#e5e7eb'}
-              />
-              <p style={{
-                marginTop: '0.5rem',
-                fontSize: '0.75rem',
-                color: '#666',
-              }}>
-                Format: HH:MM:SS (e.g., 00:03:45 for 3 minutes 45 seconds)
-              </p>
-            </div>
-
-            <button
-              type="submit"
-              disabled={loading || !file}
+          <div
+            style={{
+              marginTop: 16,
+              position: 'relative',
+              height: 64,
+              background: 'var(--tile-soft)',
+              border: '2px solid var(--border)',
+            }}
+          >
+            <div
               style={{
-                width: '100%',
-                padding: '0.875rem',
-                backgroundColor: loading || !file ? '#9ca3af' : '#667eea',
-                color: 'white',
-                border: 'none',
-                borderRadius: '8px',
-                fontSize: '1rem',
-                fontWeight: '600',
-                cursor: loading || !file ? 'not-allowed' : 'pointer',
-                transition: 'background-color 0.3s',
-              }}
-              onMouseEnter={(e) => {
-                if (!loading && file) e.currentTarget.style.backgroundColor = '#5568d3'
-              }}
-              onMouseLeave={(e) => {
-                if (!loading && file) e.currentTarget.style.backgroundColor = '#667eea'
+                position: 'absolute',
+                inset: 0,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 2,
+                padding: '0 6px',
+                overflow: 'hidden',
               }}
             >
-              {loading ? (
-                <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  <span style={{
-                    display: 'inline-block',
-                    width: '16px',
-                    height: '16px',
-                    border: '2px solid white',
-                    borderTopColor: 'transparent',
-                    borderRadius: '50%',
-                    animation: 'spin 1s linear infinite',
-                    marginRight: '0.5rem',
-                  }} />
-                  Trimming...
-                </span>
-              ) : 'Trim Audio'}
-            </button>
-          </form>
-        ) : (
-          <div style={{
-            padding: '1.5rem',
-            backgroundColor: '#f0fdf4',
-            borderRadius: '8px',
-          }}>
-            <h3 style={{
-              fontSize: '1.125rem',
-              fontWeight: '600',
-              marginBottom: '0.5rem',
-              color: '#16a34a',
-            }}>
-              Success!
-            </h3>
-            <p style={{ color: '#333', marginBottom: '1rem' }}>
-              {result.message || 'Audio trimmed successfully!'}
-            </p>
-            {result.metadata && Object.keys(result.metadata).length > 0 && (
-              <div style={{
-                marginBottom: '1rem',
-                padding: '0.75rem',
-                backgroundColor: 'white',
-                borderRadius: '6px',
-                fontSize: '0.875rem',
-              }}>
-                {Object.entries(result.metadata).map(([key, value]) => (
-                  <div key={key} style={{ marginBottom: '0.25rem' }}>
-                    <strong>{key}:</strong> {String(value)}
-                  </div>
-                ))}
-              </div>
-            )}
-            <div style={{ display: 'flex', gap: '0.75rem' }}>
-              <button
-                onClick={() => {
-                  if (result.file_id) {
-                    window.open(`${API_URL}/api/v1/download/${result.file_id}`, '_blank')
-                  }
-                }}
-                style={{
-                  flex: 1,
-                  padding: '0.625rem 1.5rem',
-                  backgroundColor: '#16a34a',
-                  color: 'white',
-                  border: 'none',
-                  borderRadius: '6px',
-                  fontSize: '0.875rem',
-                  fontWeight: '600',
-                  cursor: 'pointer',
-                }}
-                onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#15803d'}
-                onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#16a34a'}
-              >
-                Download File
-              </button>
-              <button
-                onClick={handleReset}
-                style={{
-                  flex: 1,
-                  padding: '0.625rem 1.5rem',
-                  backgroundColor: '#667eea',
-                  color: 'white',
-                  border: 'none',
-                  borderRadius: '6px',
-                  fontSize: '0.875rem',
-                  fontWeight: '600',
-                  cursor: 'pointer',
-                }}
-                onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#5568d3'}
-                onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#667eea'}
-              >
-                Trim Another
-              </button>
+              {waveBars.map((h, i) => (
+                <div
+                  key={i}
+                  style={{ flex: 1, minWidth: 2, background: 'var(--border-strong)', height: `${h}%` }}
+                />
+              ))}
             </div>
+            <div
+              style={{
+                position: 'absolute',
+                top: 0,
+                bottom: 0,
+                background: 'oklch(58% 0.135 250 / 0.18)',
+                borderLeft: '4px solid var(--accent)',
+                borderRight: '4px solid var(--accent)',
+                left: `${trimStartPct}%`,
+                right: `${trimEndPct}%`,
+              }}
+            />
           </div>
-        )}
+          <input
+            type="range"
+            min={0}
+            max={durationSec}
+            value={trimStart}
+            onChange={(e) => {
+              setTrimStart(Math.min(Number(e.target.value), trimEnd - 1))
+              setFileId('')
+            }}
+            style={{ width: '100%', marginTop: 10 }}
+          />
+          <input
+            type="range"
+            min={0}
+            max={durationSec}
+            value={trimEnd}
+            onChange={(e) => {
+              setTrimEnd(Math.max(Number(e.target.value), trimStart + 1))
+              setFileId('')
+            }}
+            style={{ width: '100%', marginTop: 4, accentColor: 'var(--accent-dark)' }}
+          />
 
-        {error && (
-          <div style={{
-            marginTop: '1.5rem',
-            padding: '1rem',
-            backgroundColor: '#fee2e2',
-            borderRadius: '8px',
-            color: '#dc2626',
-          }}>
-            {error}
+          <TrimStats
+            startLabel={formatDuration(trimStart)}
+            endLabel={formatDuration(trimEnd)}
+            clipLabel={formatDuration(Math.max(0, trimEnd - trimStart))}
+          />
+
+          {error && <ErrorPanel message={error} />}
+
+          <div style={{ marginTop: 22, display: 'flex', gap: 12, alignItems: 'center' }}>
+            {fileId ? (
+              <DonePanel
+                filename={file.name}
+                meta={`${formatDuration(Math.max(0, trimEnd - trimStart))} clip · ready`}
+                onDownload={() => downloadFile(fileId)}
+                onReset={reset}
+              />
+            ) : (
+              <button className="btn-primary" onClick={trim} disabled={busy || duration === 0}>
+                {busy ? 'Trimming...' : '✂️ Trim & download'}
+              </button>
+            )}
           </div>
-        )}
-
-        <style jsx>{`
-          @keyframes spin {
-            to { transform: rotate(360deg); }
-          }
-        `}</style>
-      </div>
-    </div>
+        </>
+      )}
+    </ToolPage>
   )
 }

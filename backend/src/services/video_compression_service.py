@@ -37,6 +37,7 @@ class VideoCompressionService:
         codec: VideoCodec = VideoCodec.H264,
         target_size_mb: Optional[float] = None,
         output_path: Optional[str] = None,
+        max_height: Optional[int] = None,
     ) -> Dict:
         """
         Compress a video file with specified settings.
@@ -73,11 +74,12 @@ class VideoCompressionService:
         # Choose compression method
         if target_size_mb:
             result = self._compress_by_size(
-                input_path, output_path, target_size_mb, codec, input_info
+                input_path, output_path, target_size_mb, codec, input_info,
+                max_height=max_height,
             )
         else:
             result = self._compress_by_quality(
-                input_path, output_path, preset, codec
+                input_path, output_path, preset, codec, max_height=max_height
             )
         
         # Get output info
@@ -109,6 +111,7 @@ class VideoCompressionService:
         output_path: str,
         preset: CompressionPreset,
         codec: VideoCodec,
+        max_height: Optional[int] = None,
     ) -> Dict:
         """Compress using CRF (Constant Rate Factor) for quality-based compression."""
         # CRF values: lower = better quality, higher = more compression
@@ -158,6 +161,11 @@ class VideoCompressionService:
                 output_path
             ]
         
+        if max_height:
+            # Downscale to max_height (keep aspect, never upscale); -2 keeps width even
+            idx = cmd.index("-y")
+            cmd[idx:idx] = ["-vf", f"scale=-2:'min({max_height},ih)'"]
+
         try:
             result = subprocess.run(
                 cmd,
@@ -176,6 +184,7 @@ class VideoCompressionService:
         target_size_mb: float,
         codec: VideoCodec,
         input_info: Dict,
+        max_height: Optional[int] = None,
     ) -> Dict:
         """Compress to achieve a specific target file size using two-pass encoding."""
         duration = float(input_info.get("duration", 0))
@@ -262,6 +271,11 @@ class VideoCompressionService:
                 output_path
             ]
         
+        if max_height:
+            scale_args = ["-vf", f"scale=-2:'min({max_height},ih)'"]
+            cmd_pass1[cmd_pass1.index("-an"):cmd_pass1.index("-an")] = scale_args
+            cmd_pass2[cmd_pass2.index("-y"):cmd_pass2.index("-y")] = scale_args
+
         try:
             # Run pass 1
             subprocess.run(cmd_pass1, capture_output=True, check=True, timeout=3600)
@@ -465,12 +479,16 @@ class VideoCompressionService:
         
         if output_format == "mp4":
             codec_params = ["-c:v", "libx264", "-preset", quality]
+            audio_params = ["-c:a", "aac"]
         elif output_format == "webm":
+            # WebM containers only allow Vorbis/Opus audio
             codec_params = ["-c:v", "libvpx-vp9", "-b:v", "0", "-crf", "30"]
+            audio_params = ["-c:a", "libopus"]
         else:
             codec_params = ["-c:v", "libx264", "-preset", quality]
-        
-        cmd = ["ffmpeg", "-i", str(input_path)] + codec_params + ["-c:a", "aac", "-y", str(output_path)]
+            audio_params = ["-c:a", "aac"]
+
+        cmd = ["ffmpeg", "-i", str(input_path)] + codec_params + audio_params + ["-y", str(output_path)]
         
         try:
             subprocess.run(cmd, check=True, capture_output=True, timeout=300)

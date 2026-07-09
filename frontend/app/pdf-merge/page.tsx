@@ -1,438 +1,233 @@
 'use client'
 
 import { useState } from 'react'
-import Link from 'next/link'
+import ToolPage from '@/components/ui/ToolPage'
+import Dropzone from '@/components/ui/Dropzone'
+import { ErrorPanel, DonePanel } from '@/components/ui/panels'
+import { uploadFile, downloadFile, formatFileSize } from '@/lib/api'
 
-interface FileItem {
-  id: string
+interface Entry {
+  id: number
   file: File
-  size: string
+  pages: number | null
 }
 
-export default function PDFMergePage() {
-  const [files, setFiles] = useState<FileItem[]>([])
-  const [outputFilename, setOutputFilename] = useState('')
-  const [loading, setLoading] = useState(false)
-  const [result, setResult] = useState<any>(null)
+// Best-effort client-side page count (works for most uncompressed xrefs)
+async function countPdfPages(file: File): Promise<number | null> {
+  try {
+    const text = await file.slice(0, 4 * 1024 * 1024).text()
+    const matches = text.match(/\/Type\s*\/Page[\s>/\]]/g)
+    return matches && matches.length > 0 ? matches.length : null
+  } catch {
+    return null
+  }
+}
+
+let nextId = 1
+
+export default function MergePdfs() {
+  const [entries, setEntries] = useState<Entry[]>([])
+  const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
-  const [draggedIndex, setDraggedIndex] = useState<number | null>(null)
+  const [result, setResult] = useState<{ file_id: string; total_pages: number; file_size_kb: number } | null>(null)
 
-  const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
-
-  const formatFileSize = (bytes: number): string => {
-    if (bytes === 0) return '0 Bytes'
-    const k = 1024
-    const sizes = ['Bytes', 'KB', 'MB', 'GB']
-    const i = Math.floor(Math.log(bytes) / Math.log(k))
-    return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i]
-  }
-
-  const handleFilesSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const selectedFiles = Array.from(e.target.files || [])
-    const pdfFiles = selectedFiles.filter(file => file.type === 'application/pdf')
-    
-    if (pdfFiles.length !== selectedFiles.length) {
-      setError('Only PDF files are allowed')
-    } else {
-      setError('')
+  const onFiles = async (files: File[]) => {
+    const newEntries: Entry[] = files.map((file) => ({ id: nextId++, file, pages: null }))
+    setEntries((prev) => [...prev, ...newEntries])
+    setResult(null)
+    setError('')
+    for (const entry of newEntries) {
+      const pages = await countPdfPages(entry.file)
+      if (pages) {
+        setEntries((prev) => prev.map((e) => (e.id === entry.id ? { ...e, pages } : e)))
+      }
     }
-
-    const newFiles: FileItem[] = pdfFiles.map(file => ({
-      id: Math.random().toString(36).substr(2, 9),
-      file,
-      size: formatFileSize(file.size)
-    }))
-
-    setFiles(prev => [...prev, ...newFiles])
   }
 
-  const handleRemoveFile = (id: string) => {
-    setFiles(files.filter(f => f.id !== id))
+  const move = (id: number, dir: -1 | 1) => {
+    setEntries((prev) => {
+      const i = prev.findIndex((e) => e.id === id)
+      const j = i + dir
+      if (i === -1 || j < 0 || j >= prev.length) return prev
+      const next = [...prev]
+      ;[next[i], next[j]] = [next[j], next[i]]
+      return next
+    })
+    setResult(null)
   }
 
-  const handleDragStart = (index: number) => {
-    setDraggedIndex(index)
+  const remove = (id: number) => {
+    setEntries((prev) => prev.filter((e) => e.id !== id))
+    setResult(null)
   }
 
-  const handleDragOver = (e: React.DragEvent, index: number) => {
-    e.preventDefault()
-    if (draggedIndex === null || draggedIndex === index) return
-
-    const newFiles = [...files]
-    const draggedFile = newFiles[draggedIndex]
-    newFiles.splice(draggedIndex, 1)
-    newFiles.splice(index, 0, draggedFile)
-    
-    setFiles(newFiles)
-    setDraggedIndex(index)
-  }
-
-  const handleDragEnd = () => {
-    setDraggedIndex(null)
-  }
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (files.length < 2) {
-      setError('Please select at least 2 PDF files to merge')
+  const merge = async () => {
+    if (entries.length < 2) {
+      setError('Need at least 2 PDF files to merge')
       return
     }
-
-    setLoading(true)
+    setBusy(true)
     setError('')
-    setResult(null)
-
     try {
       const formData = new FormData()
-      files.forEach(fileItem => {
-        formData.append('files', fileItem.file)
-      })
-      if (outputFilename) {
-        formData.append('output_filename', outputFilename)
-      }
-
-      const response = await fetch(`${API_URL}/api/v1/pdf/merge`, {
-        method: 'POST',
-        body: formData,
-      })
-
-      if (!response.ok) {
-        const errorData = await response.json()
-        throw new Error(errorData.detail || 'Merge failed')
-      }
-
-      const data = await response.json()
+      entries.forEach((e) => formData.append('files', e.file))
+      const data = await uploadFile('pdf/merge', formData)
       setResult(data)
-      setFiles([])
-      setOutputFilename('')
+      downloadFile(data.file_id)
     } catch (err: any) {
-      setError(err.message || 'An error occurred')
+      setError(err.message || 'Merge failed')
     } finally {
-      setLoading(false)
+      setBusy(false)
     }
   }
 
-  const handleReset = () => {
-    setFiles([])
-    setOutputFilename('')
-    setResult(null)
-    setError('')
-  }
+  const totalPages = entries.reduce((a, e) => a + (e.pages || 0), 0)
+  const totalSize = entries.reduce((a, e) => a + e.file.size, 0)
 
   return (
-    <div style={{
-      minHeight: '100vh',
-      display: 'flex',
-      flexDirection: 'column',
-      alignItems: 'center',
-      padding: '2rem',
-    }}>
-      <Link href="/" style={{
-        color: 'white',
-        textDecoration: 'none',
-        marginBottom: '2rem',
-        fontSize: '1rem',
-      }}>
-        ← Back to Home
-      </Link>
+    <ToolPage
+      crumb="Merge PDFs"
+      emoji="🔗"
+      title="Merge PDFs"
+      subtitle="Combine multiple PDFs into one document, in order."
+    >
+      <Dropzone
+        emoji="📄"
+        label="Drag & drop PDFs here, or click to add another"
+        hint="Reorder with the handles below — files merge top to bottom"
+        accept="application/pdf"
+        multiple
+        compact
+        onFiles={onFiles}
+      />
 
-      <div style={{
-        background: 'white',
-        borderRadius: '16px',
-        padding: '2.5rem',
-        boxShadow: '0 15px 40px rgba(0, 0, 0, 0.2)',
-        maxWidth: '700px',
-        width: '100%',
-      }}>
-        <h1 style={{
-          fontSize: '2rem',
-          fontWeight: 'bold',
-          marginBottom: '0.5rem',
-          color: '#333',
-        }}>
-          📄 PDF Merge
-        </h1>
-        <p style={{
-          color: '#666',
-          marginBottom: '2rem',
-        }}>
-          Merge multiple PDF files into one document
-        </p>
-
-        {!result ? (
-          <form onSubmit={handleSubmit}>
-            <div style={{ marginBottom: '1.5rem' }}>
-              <label style={{
-                display: 'block',
-                marginBottom: '0.5rem',
-                fontWeight: '500',
-                color: '#333',
-              }}>
-                Select PDF Files
-              </label>
-              <input
-                type="file"
-                onChange={handleFilesSelect}
-                accept=".pdf,application/pdf"
-                multiple
-                style={{
-                  width: '100%',
-                  padding: '0.75rem',
-                  border: '2px solid #e5e7eb',
-                  borderRadius: '8px',
-                  fontSize: '1rem',
-                  outline: 'none',
-                  cursor: 'pointer',
-                }}
-              />
-              <p style={{
-                fontSize: '0.875rem',
-                color: '#999',
-                marginTop: '0.5rem',
-              }}>
-                Select at least 2 PDF files. Drag to reorder.
-              </p>
-            </div>
-
-            {files.length > 0 && (
-              <div style={{
-                marginBottom: '1.5rem',
-                padding: '1rem',
-                backgroundColor: '#f9fafb',
-                borderRadius: '8px',
-                border: '2px dashed #e5e7eb',
-              }}>
-                <h3 style={{
-                  fontSize: '0.875rem',
-                  fontWeight: '600',
-                  color: '#333',
-                  marginBottom: '0.75rem',
-                }}>
-                  Files to Merge ({files.length})
-                </h3>
-                {files.map((fileItem, index) => (
-                  <div
-                    key={fileItem.id}
-                    draggable
-                    onDragStart={() => handleDragStart(index)}
-                    onDragOver={(e) => handleDragOver(e, index)}
-                    onDragEnd={handleDragEnd}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                      padding: '0.75rem',
-                      backgroundColor: 'white',
-                      borderRadius: '6px',
-                      marginBottom: '0.5rem',
-                      cursor: 'move',
-                      border: draggedIndex === index ? '2px solid #667eea' : '1px solid #e5e7eb',
-                      opacity: draggedIndex === index ? 0.5 : 1,
-                    }}
-                  >
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flex: 1 }}>
-                      <span style={{ fontSize: '1.25rem', color: '#667eea' }}>☰</span>
-                      <div style={{ flex: 1 }}>
-                        <div style={{ fontSize: '0.875rem', color: '#333', fontWeight: '500' }}>
-                          {index + 1}. {fileItem.file.name}
-                        </div>
-                        <div style={{ fontSize: '0.75rem', color: '#999' }}>
-                          {fileItem.size}
-                        </div>
-                      </div>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => handleRemoveFile(fileItem.id)}
-                      style={{
-                        padding: '0.25rem 0.5rem',
-                        backgroundColor: '#fee2e2',
-                        color: '#dc2626',
-                        border: 'none',
-                        borderRadius: '4px',
-                        fontSize: '0.75rem',
-                        fontWeight: '600',
-                        cursor: 'pointer',
-                      }}
-                      onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#fecaca'}
-                      onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#fee2e2'}
-                    >
-                      Remove
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            <div style={{ marginBottom: '1.5rem' }}>
-              <label style={{
-                display: 'block',
-                marginBottom: '0.5rem',
-                fontWeight: '500',
-                color: '#333',
-              }}>
-                Output Filename (Optional)
-              </label>
-              <input
-                type="text"
-                value={outputFilename}
-                onChange={(e) => setOutputFilename(e.target.value)}
-                placeholder="merged_document.pdf"
-                style={{
-                  width: '100%',
-                  padding: '0.75rem',
-                  border: '2px solid #e5e7eb',
-                  borderRadius: '8px',
-                  fontSize: '1rem',
-                  outline: 'none',
-                  transition: 'border-color 0.3s',
-                }}
-                onFocus={(e) => e.currentTarget.style.borderColor = '#667eea'}
-                onBlur={(e) => e.currentTarget.style.borderColor = '#e5e7eb'}
-              />
-            </div>
-
-            <button
-              type="submit"
-              disabled={loading || files.length < 2}
+      {entries.length > 0 && (
+        <div style={{ marginTop: 20, display: 'flex', flexDirection: 'column', gap: 10 }}>
+          {entries.map((entry, i) => (
+            <div
+              key={entry.id}
               style={{
-                width: '100%',
-                padding: '0.875rem',
-                backgroundColor: loading || files.length < 2 ? '#9ca3af' : '#667eea',
-                color: 'white',
-                border: 'none',
-                borderRadius: '8px',
-                fontSize: '1rem',
-                fontWeight: '600',
-                cursor: loading || files.length < 2 ? 'not-allowed' : 'pointer',
-                transition: 'background-color 0.3s',
-              }}
-              onMouseEnter={(e) => {
-                if (!loading && files.length >= 2) e.currentTarget.style.backgroundColor = '#5568d3'
-              }}
-              onMouseLeave={(e) => {
-                if (!loading && files.length >= 2) e.currentTarget.style.backgroundColor = '#667eea'
+                display: 'flex',
+                alignItems: 'center',
+                gap: 14,
+                background: 'var(--surface)',
+                border: '2px solid var(--border)',
+                padding: '14px 16px',
+                boxShadow: '2px 2px 0 var(--border)',
               }}
             >
-              {loading ? (
-                <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  <span style={{
-                    display: 'inline-block',
-                    width: '16px',
-                    height: '16px',
-                    border: '2px solid white',
-                    borderTopColor: 'transparent',
-                    borderRadius: '50%',
-                    animation: 'spin 1s linear infinite',
-                    marginRight: '0.5rem',
-                  }} />
-                  Merging PDFs...
-                </span>
-              ) : 'Merge PDFs'}
-            </button>
-          </form>
-        ) : (
-          <div style={{
-            padding: '1.5rem',
-            backgroundColor: '#f0fdf4',
-            borderRadius: '8px',
-          }}>
-            <h3 style={{
-              fontSize: '1.125rem',
-              fontWeight: '600',
-              marginBottom: '0.5rem',
-              color: '#16a34a',
-            }}>
-              ✅ PDFs Merged Successfully!
-            </h3>
-            {result.metadata && (
-              <div style={{
-                marginBottom: '1rem',
-                padding: '0.75rem',
-                backgroundColor: 'white',
-                borderRadius: '6px',
-                fontSize: '0.875rem',
-              }}>
-                {result.metadata.pdfs_merged && (
-                  <div style={{ marginBottom: '0.25rem' }}>
-                    <strong>PDFs Merged:</strong> {result.metadata.pdfs_merged}
-                  </div>
-                )}
-                {result.metadata.total_pages && (
-                  <div style={{ marginBottom: '0.25rem' }}>
-                    <strong>Total Pages:</strong> {result.metadata.total_pages}
-                  </div>
-                )}
-                {result.metadata.output_size && (
-                  <div style={{ marginBottom: '0.25rem' }}>
-                    <strong>File Size:</strong> {result.metadata.output_size}
-                  </div>
-                )}
+              <span style={{ fontSize: 15, color: 'var(--faint)', cursor: 'grab' }}>⠿</span>
+              <div
+                style={{
+                  width: 34,
+                  height: 42,
+                  background: 'white',
+                  border: '2px solid var(--border)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontSize: 16,
+                  flexShrink: 0,
+                }}
+              >
+                📄
               </div>
-            )}
-            <div style={{ display: 'flex', gap: '0.75rem' }}>
-              <button
-                onClick={() => {
-                  if (result.file_id) {
-                    window.open(`${API_URL}/api/v1/download/${result.file_id}`, '_blank')
-                  }
-                }}
-                style={{
-                  flex: 1,
-                  padding: '0.625rem 1.5rem',
-                  backgroundColor: '#16a34a',
-                  color: 'white',
-                  border: 'none',
-                  borderRadius: '6px',
-                  fontSize: '0.875rem',
-                  fontWeight: '600',
-                  cursor: 'pointer',
-                }}
-                onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#15803d'}
-                onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#16a34a'}
-              >
-                Download Merged PDF
-              </button>
-              <button
-                onClick={handleReset}
-                style={{
-                  flex: 1,
-                  padding: '0.625rem 1.5rem',
-                  backgroundColor: '#667eea',
-                  color: 'white',
-                  border: 'none',
-                  borderRadius: '6px',
-                  fontSize: '0.875rem',
-                  fontWeight: '600',
-                  cursor: 'pointer',
-                }}
-                onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#5568d3'}
-                onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#667eea'}
-              >
-                Merge Another
-              </button>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div
+                  style={{
+                    fontWeight: 700,
+                    fontSize: 14,
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {entry.file.name}
+                </div>
+                <div style={{ fontSize: 12, color: 'var(--muted)' }}>
+                  {entry.pages ? `${entry.pages} pages · ` : ''}
+                  {formatFileSize(entry.file.size)}
+                </div>
+              </div>
+              <span className="font-pixel" style={{ fontSize: 11, color: 'var(--faint)', flexShrink: 0 }}>
+                #{i + 1}
+              </span>
+              <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
+                <button
+                  onClick={() => move(entry.id, -1)}
+                  className="btn-secondary"
+                  style={{ width: 28, height: 28, padding: 0, fontSize: 12 }}
+                >
+                  ↑
+                </button>
+                <button
+                  onClick={() => move(entry.id, 1)}
+                  className="btn-secondary"
+                  style={{ width: 28, height: 28, padding: 0, fontSize: 12 }}
+                >
+                  ↓
+                </button>
+                <button
+                  onClick={() => remove(entry.id)}
+                  className="btn-secondary"
+                  style={{ width: 28, height: 28, padding: 0, fontSize: 12, color: 'oklch(50% 0.15 25)' }}
+                >
+                  ✕
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {entries.length > 0 && (
+        <div
+          className="notch-6"
+          style={{
+            marginTop: 24,
+            background: 'var(--tile)',
+            border: '2px solid var(--accent-soft)',
+            padding: '18px 20px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+          }}
+        >
+          <div>
+            <div style={{ fontWeight: 700, fontSize: 14, color: 'var(--accent-dark)' }}>
+              merged-document.pdf
+            </div>
+            <div style={{ fontSize: 12, color: 'oklch(45% 0.03 250)', marginTop: 2 }}>
+              {entries.length} files{totalPages ? ` · ${totalPages} pages` : ''} · ~
+              {formatFileSize(totalSize)}
             </div>
           </div>
-        )}
+          <span style={{ fontSize: 24 }}>➡️</span>
+        </div>
+      )}
 
-        {error && (
-          <div style={{
-            marginTop: '1.5rem',
-            padding: '1rem',
-            backgroundColor: '#fee2e2',
-            borderRadius: '8px',
-            color: '#dc2626',
-          }}>
-            {error}
-          </div>
-        )}
+      {error && <ErrorPanel message={error} />}
 
-        <style jsx>{`
-          @keyframes spin {
-            to { transform: rotate(360deg); }
-          }
-        `}</style>
-      </div>
-    </div>
+      {entries.length > 0 && (
+        <div style={{ marginTop: 22 }}>
+          {result ? (
+            <DonePanel
+              filename="merged-document.pdf"
+              meta={`${result.total_pages} pages · ${formatFileSize(result.file_size_kb * 1024)} · ready`}
+              onDownload={() => downloadFile(result.file_id)}
+              onReset={() => {
+                setEntries([])
+                setResult(null)
+              }}
+              resetLabel="Merge more"
+            />
+          ) : (
+            <button className="btn-primary" onClick={merge} disabled={busy || entries.length < 2}>
+              {busy ? 'Merging...' : '🔗 Merge & download'}
+            </button>
+          )}
+        </div>
+      )}
+    </ToolPage>
   )
 }

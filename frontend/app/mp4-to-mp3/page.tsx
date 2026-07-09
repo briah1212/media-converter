@@ -1,207 +1,133 @@
 'use client'
 
 import { useState } from 'react'
-import Link from 'next/link'
+import ToolPage from '@/components/ui/ToolPage'
+import Dropzone from '@/components/ui/Dropzone'
+import FileInfoCard from '@/components/ui/FileInfoCard'
+import Chips from '@/components/ui/Chips'
+import { ErrorPanel, DonePanel } from '@/components/ui/panels'
+import { uploadFile, downloadFile, formatFileSize, formatDuration } from '@/lib/api'
+import { loadMediaMeta, MediaMeta } from '@/lib/media'
 
-export default function MP4ToMP3() {
+const BITRATES = [128, 192, 256, 320]
+
+export default function Mp4ToMp3() {
   const [file, setFile] = useState<File | null>(null)
-  const [loading, setLoading] = useState(false)
-  const [result, setResult] = useState<any>(null)
+  const [meta, setMeta] = useState<MediaMeta | null>(null)
+  const [bitrate, setBitrate] = useState(192)
+  const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const [fileId, setFileId] = useState('')
 
-  const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!file) return
-
-    setLoading(true)
+  const onFiles = async (files: File[]) => {
+    const f = files[0]
+    setFile(f)
     setError('')
-    setResult(null)
-
-    const formData = new FormData()
-    formData.append('file', file)
-
+    setFileId('')
     try {
-      const response = await fetch(`${API_URL}/api/v1/convert/mp4-to-mp3`, {
-        method: 'POST',
-        body: formData,
-      })
+      setMeta(await loadMediaMeta(f, 'video'))
+    } catch {
+      setMeta(null)
+    }
+  }
 
-      if (!response.ok) {
-        const errorData = await response.json()
-        throw new Error(errorData.detail || 'Conversion failed')
-      }
+  const reset = () => {
+    setFile(null)
+    setMeta(null)
+    setError('')
+    setFileId('')
+    setBitrate(192)
+  }
 
-      const data = await response.json()
-      setResult(data)
+  const estimateSize = (kbps: number) =>
+    meta?.duration ? formatFileSize((meta.duration * kbps * 1000) / 8) : null
+
+  const convert = async () => {
+    if (!file) return
+    setBusy(true)
+    setError('')
+    try {
+      const formData = new FormData()
+      formData.append('file', file)
+      formData.append('bitrate', `${bitrate}k`)
+      const data = await uploadFile('convert/mp4-to-mp3', formData)
+      setFileId(data.file_id)
+      downloadFile(data.file_id)
     } catch (err: any) {
-      setError(err.message || 'An error occurred')
+      setError(err.message || 'Conversion failed')
     } finally {
-      setLoading(false)
+      setBusy(false)
     }
   }
 
-  const handleDownload = () => {
-    if (result && result.file_id) {
-      window.open(`${API_URL}/api/v1/download/${result.file_id}`, '_blank')
-    }
-  }
+  const metaLine = [
+    meta?.duration ? formatDuration(meta.duration) : null,
+    meta?.width && meta?.height ? `${meta.width}×${meta.height}` : null,
+    file ? formatFileSize(file.size) : null,
+  ]
+    .filter(Boolean)
+    .join(' · ')
 
   return (
-    <div style={{
-      minHeight: '100vh',
-      display: 'flex',
-      flexDirection: 'column',
-      alignItems: 'center',
-      padding: '2rem',
-    }}>
-      <Link href="/" style={{
-        color: 'white',
-        textDecoration: 'none',
-        marginBottom: '2rem',
-        fontSize: '1rem',
-      }}>
-        ← Back to Home
-      </Link>
+    <ToolPage
+      crumb="MP4 to MP3"
+      emoji="🔄"
+      title="MP4 to MP3"
+      subtitle="Convert an MP4 video file straight to MP3 audio."
+    >
+      {!file ? (
+        <Dropzone
+          emoji="🎬"
+          label="Drag & drop an MP4 file, or click to browse"
+          hint="MP4 up to 2 GB"
+          accept="video/mp4"
+          onFiles={onFiles}
+        />
+      ) : (
+        <>
+          <FileInfoCard emoji="🎬" name={file.name} meta={metaLine} onRemove={reset} />
 
-      <div style={{
-        background: 'white',
-        borderRadius: '16px',
-        padding: '2.5rem',
-        boxShadow: '0 15px 40px rgba(0, 0, 0, 0.2)',
-        maxWidth: '600px',
-        width: '100%',
-      }}>
-        <h1 style={{
-          fontSize: '2rem',
-          fontWeight: 'bold',
-          marginBottom: '0.5rem',
-          color: '#333',
-        }}>
-          MP4 to MP3
-        </h1>
-        <p style={{
-          color: '#666',
-          marginBottom: '2rem',
-        }}>
-          Convert your MP4 video files to MP3 audio
-        </p>
-
-        <form onSubmit={handleSubmit}>
-          <div style={{ marginBottom: '1.5rem' }}>
-            <label style={{
-              display: 'block',
-              marginBottom: '0.5rem',
-              fontWeight: '500',
-              color: '#333',
-            }}>
-              Upload MP4 File
-            </label>
-            <input
-              type="file"
-              accept=".mp4,video/mp4"
-              onChange={(e) => setFile(e.target.files?.[0] || null)}
-              required
-              style={{
-                width: '100%',
-                padding: '0.75rem',
-                border: '2px solid #e5e7eb',
-                borderRadius: '8px',
-                fontSize: '1rem',
-                outline: 'none',
+          <div className="pixel-card notch-6" style={{ marginTop: 22, padding: 22, boxShadow: 'none' }}>
+            <div className="label-caps">Bitrate</div>
+            <Chips
+              options={BITRATES.map((b) => ({
+                value: String(b),
+                label: (
+                  <>
+                    {b}kbps
+                    {estimateSize(b) && (
+                      <span style={{ opacity: 0.55, fontWeight: 400 }}> · {estimateSize(b)}</span>
+                    )}
+                  </>
+                ),
+              }))}
+              value={String(bitrate)}
+              onChange={(b) => {
+                setBitrate(Number(b))
+                setFileId('')
               }}
+              style={{ marginTop: 10 }}
             />
-            {file && (
-              <p style={{
-                marginTop: '0.5rem',
-                fontSize: '0.875rem',
-                color: '#666',
-              }}>
-                Selected: {file.name} ({(file.size / 1024 / 1024).toFixed(2)} MB)
-              </p>
+          </div>
+
+          {error && <ErrorPanel message={error} />}
+
+          <div style={{ marginTop: 22, display: 'flex', gap: 12, alignItems: 'center' }}>
+            {fileId ? (
+              <DonePanel
+                filename={file.name.replace(/\.[^.]+$/, '.mp3')}
+                meta={`${bitrate}kbps · ready`}
+                onDownload={() => downloadFile(fileId)}
+                onReset={reset}
+              />
+            ) : (
+              <button className="btn-primary" onClick={convert} disabled={busy}>
+                {busy ? 'Converting...' : '⬇ Download MP3'}
+              </button>
             )}
           </div>
-
-          <button
-            type="submit"
-            disabled={loading || !file}
-            style={{
-              width: '100%',
-              padding: '0.875rem',
-              backgroundColor: (loading || !file) ? '#9ca3af' : '#667eea',
-              color: 'white',
-              border: 'none',
-              borderRadius: '8px',
-              fontSize: '1rem',
-              fontWeight: '600',
-              cursor: (loading || !file) ? 'not-allowed' : 'pointer',
-              transition: 'background-color 0.3s',
-            }}
-            onMouseEnter={(e) => {
-              if (!loading && file) e.currentTarget.style.backgroundColor = '#5568d3'
-            }}
-            onMouseLeave={(e) => {
-              if (!loading && file) e.currentTarget.style.backgroundColor = '#667eea'
-            }}
-          >
-            {loading ? 'Converting...' : 'Convert to MP3'}
-          </button>
-        </form>
-
-        {error && (
-          <div style={{
-            marginTop: '1.5rem',
-            padding: '1rem',
-            backgroundColor: '#fee2e2',
-            borderRadius: '8px',
-            color: '#dc2626',
-          }}>
-            {error}
-          </div>
-        )}
-
-        {result && (
-          <div style={{
-            marginTop: '1.5rem',
-            padding: '1.5rem',
-            backgroundColor: '#f0fdf4',
-            borderRadius: '8px',
-          }}>
-            <h3 style={{
-              fontSize: '1.125rem',
-              fontWeight: '600',
-              marginBottom: '0.5rem',
-              color: '#16a34a',
-            }}>
-              Conversion Complete!
-            </h3>
-            <p style={{
-              color: '#333',
-              marginBottom: '1rem',
-            }}>
-              Your MP3 file is ready to download.
-            </p>
-            <button
-              onClick={handleDownload}
-              style={{
-                padding: '0.625rem 1.5rem',
-                backgroundColor: '#16a34a',
-                color: 'white',
-                border: 'none',
-                borderRadius: '6px',
-                fontSize: '0.875rem',
-                fontWeight: '600',
-                cursor: 'pointer',
-              }}
-              onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#15803d'}
-              onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#16a34a'}
-            >
-              Download MP3
-            </button>
-          </div>
-        )}
-      </div>
-    </div>
+        </>
+      )}
+    </ToolPage>
   )
 }

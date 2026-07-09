@@ -533,30 +533,34 @@ class ImageCompressionService:
         }
 
 
-    def convert_heic(self, file_path: str, output_format: str = "jpeg", quality: int = 90) -> Dict:
+    def convert_heic(self, file_path: str, output_format: str = "jpeg", quality: int = 90,
+                     keep_metadata: bool = True) -> Dict:
         """Convert HEIC/HEIF format to other formats."""
         try:
             from pillow_heif import register_heif_opener
             register_heif_opener()
         except ImportError:
             return {"status": "error", "error": "pillow-heif not installed"}
-        
+
         try:
             img = Image.open(file_path)
             original_size = os.path.getsize(file_path)
             output_path = f"{self.output_dir}/{uuid.uuid4()}.{output_format}"
-            
+
+            exif = img.info.get("exif") if keep_metadata else None
+            save_extras = {"exif": exif} if exif else {}
+
             if output_format.lower() in ["jpeg", "jpg"] and img.mode not in ["RGB", "L"]:
                 img = img.convert("RGB")
-            
+
             if output_format.lower() in ["jpeg", "jpg"]:
-                img.save(output_path, "JPEG", quality=quality, optimize=True, progressive=True)
+                img.save(output_path, "JPEG", quality=quality, optimize=True, progressive=True, **save_extras)
             elif output_format.lower() == "png":
-                img.save(output_path, "PNG", optimize=True, compress_level=9)
+                img.save(output_path, "PNG", optimize=True, compress_level=9, **save_extras)
             elif output_format.lower() == "webp":
-                img.save(output_path, "WEBP", quality=quality, method=6)
+                img.save(output_path, "WEBP", quality=quality, method=6, **save_extras)
             else:
-                img.save(output_path, format=output_format.upper(), quality=quality)
+                img.save(output_path, format=output_format.upper(), quality=quality, **save_extras)
             
             output_size = os.path.getsize(output_path)
             
@@ -681,6 +685,43 @@ class ImageCompressionService:
             "results": results
         }
 
+
+    def resize_image(self, file_path: str, width: int, height: int) -> Dict:
+        """Resize image to exact pixel dimensions (LANCZOS resampling)."""
+        try:
+            img = Image.open(file_path)
+            original_size = os.path.getsize(file_path)
+            input_dimensions = f"{img.width}x{img.height}"
+
+            fmt = (img.format or "PNG").lower()
+            ext = "jpg" if fmt in ("jpeg", "jpg") else fmt
+            output_path = f"{self.output_dir}/resized_{uuid.uuid4()}.{ext}"
+
+            resized = img.resize((width, height), Image.Resampling.LANCZOS)
+
+            if fmt in ("jpeg", "jpg"):
+                if resized.mode not in ("RGB", "L"):
+                    resized = resized.convert("RGB")
+                resized.save(output_path, "JPEG", quality=92, optimize=True)
+            elif fmt == "png":
+                resized.save(output_path, "PNG", optimize=True)
+            elif fmt == "webp":
+                resized.save(output_path, "WEBP", quality=92, method=6)
+            else:
+                resized.save(output_path)
+
+            output_size = os.path.getsize(output_path)
+
+            return {
+                "status": "success",
+                "output_path": output_path,
+                "input_dimensions": input_dimensions,
+                "output_dimensions": f"{width}x{height}",
+                "input_size_kb": round(original_size / 1024, 2),
+                "output_size_kb": round(output_size / 1024, 2),
+            }
+        except Exception as e:
+            return {"status": "error", "error": str(e)}
 
     def create_zip_archive(self, file_paths: list, output_name: str = None) -> str:
         """Create ZIP archive from list of files."""

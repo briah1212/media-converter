@@ -1,302 +1,220 @@
 'use client'
 
 import { useState } from 'react'
-import Link from 'next/link'
+import ToolPage from '@/components/ui/ToolPage'
+import Dropzone from '@/components/ui/Dropzone'
+import { ErrorPanel } from '@/components/ui/panels'
+import { uploadFile, downloadFile, formatFileSize } from '@/lib/api'
 
-export default function ImageBatchCompress() {
-  const [files, setFiles] = useState<FileList | null>(null)
-  const [targetSizeKb, setTargetSizeKb] = useState(100)
-  const [outputFormat, setOutputFormat] = useState('jpeg')
-  const [loading, setLoading] = useState(false)
-  const [result, setResult] = useState<any>(null)
+interface Entry {
+  file: File
+  previewUrl: string
+}
+
+interface FileResult {
+  name: string
+  success: boolean
+  output_size_kb?: number
+}
+
+export default function BatchCompress() {
+  const [entries, setEntries] = useState<Entry[]>([])
+  const [quality, setQuality] = useState(75)
+  const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const [results, setResults] = useState<FileResult[] | null>(null)
 
-  const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!files || files.length === 0) return
-
-    setLoading(true)
+  const onFiles = (files: File[]) => {
+    setEntries((prev) => [
+      ...prev,
+      ...files.map((file) => ({ file, previewUrl: URL.createObjectURL(file) })),
+    ])
+    setResults(null)
     setError('')
-    setResult(null)
+  }
 
-    const formData = new FormData()
-    
-    // Append all files
-    for (let i = 0; i < files.length; i++) {
-      formData.append('files', files[i])
-    }
-    
-    formData.append('target_size_kb', targetSizeKb.toString())
-    formData.append('output_format', outputFormat)
-    formData.append('create_zip', 'true')
-
+  const compressAll = async () => {
+    if (entries.length === 0) return
+    setBusy(true)
+    setError('')
     try {
-      const response = await fetch(`${API_URL}/api/v1/batch/compress/target-size`, {
-        method: 'POST',
-        body: formData,
-      })
-
-      if (!response.ok) {
-        const errorData = await response.json()
-        throw new Error(errorData.detail || 'Batch compression failed')
-      }
-
-      const data = await response.json()
-      setResult(data)
+      const formData = new FormData()
+      entries.forEach((e) => formData.append('files', e.file))
+      formData.append('quality', String(quality))
+      const data = await uploadFile('batch/compress', formData)
+      setResults(data.results)
+      if (data.zip_file_id) downloadFile(data.zip_file_id)
     } catch (err: any) {
-      setError(err.message || 'An error occurred')
+      setError(err.message || 'Batch compression failed')
     } finally {
-      setLoading(false)
+      setBusy(false)
     }
   }
 
-  const handleDownload = () => {
-    if (result && result.zip_file_id) {
-      window.open(`${API_URL}/api/v1/download/${result.zip_file_id}`, '_blank')
-    }
-  }
+  const resultFor = (name: string) => results?.find((r) => r.name === name && r.success)
 
-  const fileArray = files ? Array.from(files) : []
-  const totalSize = fileArray.reduce((sum, file) => sum + file.size, 0)
+  const totalOriginal = entries.reduce((a, e) => a + e.file.size, 0)
+  const totalCompressed = results
+    ? results.filter((r) => r.success).reduce((a, r) => a + (r.output_size_kb || 0) * 1024, 0)
+    : null
+  const totalPct =
+    totalCompressed !== null && totalOriginal > 0
+      ? Math.round((1 - totalCompressed / totalOriginal) * 100)
+      : null
 
   return (
-    <div style={{
-      minHeight: '100vh',
-      display: 'flex',
-      flexDirection: 'column',
-      alignItems: 'center',
-      padding: '2rem',
-    }}>
-      <Link href="/" style={{
-        color: 'white',
-        textDecoration: 'none',
-        marginBottom: '2rem',
-        fontSize: '1rem',
-      }}>
-        ← Back to Home
-      </Link>
+    <ToolPage
+      crumb="Batch Compress"
+      emoji="📦"
+      title="Batch Compress"
+      subtitle="Compress many images at once with one shared setting."
+    >
+      <Dropzone
+        emoji="🖼️"
+        label="Drag & drop images here, or click to add more"
+        hint="JPG, PNG, WEBP · unlimited files"
+        accept="image/jpeg,image/png,image/webp"
+        multiple
+        compact
+        onFiles={onFiles}
+      />
 
-      <div style={{
-        background: 'white',
-        borderRadius: '16px',
-        padding: '2.5rem',
-        boxShadow: '0 15px 40px rgba(0, 0, 0, 0.2)',
-        maxWidth: '700px',
-        width: '100%',
-      }}>
-        <h1 style={{
-          fontSize: '2rem',
-          fontWeight: 'bold',
-          marginBottom: '0.5rem',
-          color: '#333',
-        }}>
-          Batch Image Compression
-        </h1>
-        <p style={{
-          color: '#666',
-          marginBottom: '2rem',
-        }}>
-          Compress multiple images to target size and download as ZIP
-        </p>
-
-        <form onSubmit={handleSubmit}>
-          <div style={{ marginBottom: '1.5rem' }}>
-            <label style={{
-              display: 'block',
-              marginBottom: '0.5rem',
-              fontWeight: '500',
-              color: '#333',
-            }}>
-              Upload Image Files
-            </label>
-            <input
-              type="file"
-              accept="image/*"
-              multiple
-              onChange={(e) => setFiles(e.target.files)}
-              required
-              style={{
-                width: '100%',
-                padding: '0.75rem',
-                border: '2px solid #e5e7eb',
-                borderRadius: '8px',
-                fontSize: '1rem',
-                outline: 'none',
-              }}
-            />
-            {files && files.length > 0 && (
-              <div style={{
-                marginTop: '1rem',
-                padding: '1rem',
-                backgroundColor: '#f9fafb',
-                borderRadius: '8px',
-                maxHeight: '200px',
-                overflowY: 'auto',
-              }}>
-                <p style={{
-                  fontSize: '0.875rem',
-                  fontWeight: '600',
-                  color: '#333',
-                  marginBottom: '0.5rem',
-                }}>
-                  Selected {files.length} file(s) - Total: {(totalSize / 1024 / 1024).toFixed(2)} MB
-                </p>
-                {fileArray.map((file, index) => (
-                  <div key={index} style={{
-                    fontSize: '0.75rem',
-                    color: '#666',
-                    padding: '0.25rem 0',
-                    borderBottom: index < fileArray.length - 1 ? '1px solid #e5e7eb' : 'none',
-                  }}>
-                    {file.name} ({(file.size / 1024).toFixed(1)} KB)
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          <div style={{ marginBottom: '1.5rem' }}>
-            <label style={{
-              display: 'block',
-              marginBottom: '0.5rem',
-              fontWeight: '500',
-              color: '#333',
-            }}>
-              Target Size per Image (KB)
-            </label>
-            <input
-              type="number"
-              value={targetSizeKb}
-              onChange={(e) => setTargetSizeKb(Number(e.target.value))}
-              min={1}
-              max={50000}
-              required
-              style={{
-                width: '100%',
-                padding: '0.75rem',
-                border: '2px solid #e5e7eb',
-                borderRadius: '8px',
-                fontSize: '1rem',
-                outline: 'none',
-                transition: 'border-color 0.3s',
-              }}
-              onFocus={(e) => e.target.style.borderColor = '#667eea'}
-              onBlur={(e) => e.target.style.borderColor = '#e5e7eb'}
-            />
-          </div>
-
-          <div style={{ marginBottom: '1.5rem' }}>
-            <label style={{
-              display: 'block',
-              marginBottom: '0.5rem',
-              fontWeight: '500',
-              color: '#333',
-            }}>
-              Output Format
-            </label>
-            <select
-              value={outputFormat}
-              onChange={(e) => setOutputFormat(e.target.value)}
-              style={{
-                width: '100%',
-                padding: '0.75rem',
-                border: '2px solid #e5e7eb',
-                borderRadius: '8px',
-                fontSize: '1rem',
-                outline: 'none',
-                transition: 'border-color 0.3s',
-                backgroundColor: 'white',
-              }}
-              onFocus={(e) => e.target.style.borderColor = '#667eea'}
-              onBlur={(e) => e.target.style.borderColor = '#e5e7eb'}
-            >
-              <option value="jpeg">JPEG</option>
-              <option value="png">PNG</option>
-              <option value="webp">WebP</option>
-            </select>
-          </div>
-
-          <button
-            type="submit"
-            disabled={loading || !files || files.length === 0}
-            style={{
-              width: '100%',
-              padding: '0.875rem',
-              backgroundColor: (loading || !files || files.length === 0) ? '#9ca3af' : '#667eea',
-              color: 'white',
-              border: 'none',
-              borderRadius: '8px',
-              fontSize: '1rem',
-              fontWeight: '600',
-              cursor: (loading || !files || files.length === 0) ? 'not-allowed' : 'pointer',
-              transition: 'background-color 0.3s',
-            }}
-            onMouseEnter={(e) => {
-              if (!loading && files && files.length > 0) e.currentTarget.style.backgroundColor = '#5568d3'
-            }}
-            onMouseLeave={(e) => {
-              if (!loading && files && files.length > 0) e.currentTarget.style.backgroundColor = '#667eea'
-            }}
-          >
-            {loading ? 'Compressing...' : 'Compress Images'}
-          </button>
-        </form>
-
-        {error && (
-          <div style={{
-            marginTop: '1.5rem',
-            padding: '1rem',
-            backgroundColor: '#fee2e2',
-            borderRadius: '8px',
-            color: '#dc2626',
-          }}>
-            {error}
-          </div>
-        )}
-
-        {result && result.success && (
-          <div style={{
-            marginTop: '1.5rem',
-            padding: '1.5rem',
-            backgroundColor: '#f0fdf4',
-            borderRadius: '8px',
-          }}>
-            <h3 style={{
-              fontSize: '1.125rem',
-              fontWeight: '600',
-              marginBottom: '0.5rem',
-              color: '#16a34a',
-            }}>
-              Compression Complete!
-            </h3>
-            <p style={{
-              color: '#333',
-              marginBottom: '1rem',
-            }}>
-              Successfully compressed {result.processed_files || files?.length || 0} image(s). Download the ZIP file below.
-            </p>
-            <button
-              onClick={handleDownload}
-              style={{
-                padding: '0.625rem 1.5rem',
-                backgroundColor: '#16a34a',
-                color: 'white',
-                border: 'none',
-                borderRadius: '6px',
-                fontSize: '0.875rem',
-                fontWeight: '600',
-                cursor: 'pointer',
-              }}
-              onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#15803d'}
-              onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#16a34a'}
-            >
-              Download ZIP
-            </button>
-          </div>
-        )}
+      <div className="pixel-card notch-6" style={{ marginTop: 22, padding: 20, boxShadow: 'none' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+          <span className="label-caps">Quality (applied to all)</span>
+          <span className="label-caps">{quality}%</span>
+        </div>
+        <input
+          type="range"
+          min={10}
+          max={100}
+          value={quality}
+          onChange={(e) => {
+            setQuality(Number(e.target.value))
+            setResults(null)
+          }}
+          style={{ width: '100%', marginTop: 12 }}
+        />
       </div>
-    </div>
+
+      {entries.length > 0 && (
+        <div style={{ marginTop: 16, display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {entries.map((entry, i) => {
+            const r = resultFor(entry.file.name)
+            const pct =
+              r && r.output_size_kb
+                ? Math.max(0, Math.round((1 - (r.output_size_kb * 1024) / entry.file.size) * 100))
+                : null
+            return (
+              <div
+                key={`${entry.file.name}-${i}`}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 14,
+                  background: 'var(--surface)',
+                  border: '2px solid var(--border)',
+                  padding: '12px 16px',
+                }}
+              >
+                <div
+                  className="stripes-fine"
+                  style={{
+                    width: 36,
+                    height: 36,
+                    border: '2px solid var(--border)',
+                    flexShrink: 0,
+                    overflow: 'hidden',
+                    position: 'relative',
+                  }}
+                >
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={entry.previewUrl}
+                    alt={entry.file.name}
+                    style={{
+                      position: 'absolute',
+                      inset: 0,
+                      width: '100%',
+                      height: '100%',
+                      objectFit: 'cover',
+                    }}
+                  />
+                </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div
+                    style={{
+                      fontWeight: 700,
+                      fontSize: 13.5,
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {entry.file.name}
+                  </div>
+                  <div style={{ fontSize: 12, color: 'var(--muted)' }}>
+                    {formatFileSize(entry.file.size)}{' '}
+                    {r && r.output_size_kb && (
+                      <span style={{ color: 'var(--accent-dark)' }}>
+                        → {formatFileSize(r.output_size_kb * 1024)}
+                      </span>
+                    )}
+                  </div>
+                </div>
+                {pct !== null && (
+                  <span
+                    className="font-pixel"
+                    style={{
+                      fontSize: 10,
+                      color: 'var(--accent-dark)',
+                      background: 'var(--tile)',
+                      padding: '4px 8px',
+                      flexShrink: 0,
+                    }}
+                  >
+                    -{pct}%
+                  </span>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      )}
+
+      {entries.length > 0 && (
+        <div
+          style={{
+            marginTop: 24,
+            background: 'var(--tile)',
+            border: '2px solid var(--accent-soft)',
+            padding: '16px 20px',
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+          }}
+        >
+          <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--accent-dark)' }}>
+            {entries.length} files · {formatFileSize(totalOriginal)}
+            {totalCompressed !== null && <> → {formatFileSize(totalCompressed)}</>}
+          </div>
+          {totalPct !== null && (
+            <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--accent-dark)' }}>
+              {totalPct}% smaller
+            </div>
+          )}
+        </div>
+      )}
+
+      {error && <ErrorPanel message={error} />}
+
+      {entries.length > 0 && (
+        <div style={{ marginTop: 22 }}>
+          <button className="btn-primary" onClick={compressAll} disabled={busy}>
+            {busy ? 'Compressing...' : '📦 Compress all & download .zip'}
+          </button>
+        </div>
+      )}
+    </ToolPage>
   )
 }

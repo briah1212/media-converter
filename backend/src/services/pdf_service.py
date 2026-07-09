@@ -219,15 +219,17 @@ class PDFService:
     def images_to_pdf(
         self,
         image_paths: List[str],
-        output_path: Optional[str] = None
+        output_path: Optional[str] = None,
+        page_size: str = "fit"
     ) -> Dict:
         """
         Convert multiple images to a single PDF.
-        
+
         Args:
             image_paths: List of image file paths
             output_path: Output PDF path (optional)
-            
+            page_size: "a4", "letter", or "fit" (page matches image size)
+
         Returns:
             Dict with conversion results
         """
@@ -245,6 +247,9 @@ class PDFService:
             else:
                 output_path = Path(output_path)
             
+            # Page canvas dimensions at 150 DPI
+            page_dims = {"a4": (1240, 1754), "letter": (1275, 1650)}.get(page_size.lower())
+
             # Open all images
             images = []
             for img_path in image_paths:
@@ -252,6 +257,16 @@ class PDFService:
                 # Convert to RGB if needed
                 if img.mode not in ["RGB", "L"]:
                     img = img.convert("RGB")
+                if page_dims:
+                    # Scale image to fit the page and center it on a white canvas
+                    page_w, page_h = page_dims
+                    margin = 60
+                    scale = min((page_w - 2 * margin) / img.width, (page_h - 2 * margin) / img.height)
+                    new_size = (max(1, int(img.width * scale)), max(1, int(img.height * scale)))
+                    resized = img.resize(new_size, Image.Resampling.LANCZOS)
+                    canvas = Image.new("RGB", (page_w, page_h), "white")
+                    canvas.paste(resized, ((page_w - new_size[0]) // 2, (page_h - new_size[1]) // 2))
+                    img = canvas
                 images.append(img)
             
             # Save as PDF

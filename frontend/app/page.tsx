@@ -1,322 +1,220 @@
-"use client"
-
 import Link from 'next/link'
+import Header from '@/components/ui/Header'
+
+interface Tool {
+  title: string
+  desc: string
+  emoji: string
+  href: string
+}
+
+interface Category {
+  index: string
+  name: string
+  desc: string
+  alt: boolean
+  tools: Tool[]
+}
+
+const categories: Category[] = [
+  {
+    index: '01',
+    name: 'YouTube Tools',
+    desc: 'Download and convert YouTube videos',
+    alt: false,
+    tools: [
+      { title: 'YouTube to MP4', desc: 'Download YouTube videos as MP4 files', emoji: '🎥', href: '/youtube-to-mp4' },
+      { title: 'YouTube to MP3', desc: 'Download YouTube videos as MP3 audio', emoji: '🎵', href: '/youtube-to-mp3' },
+    ],
+  },
+  {
+    index: '02',
+    name: 'Image Tools',
+    desc: 'Compress, convert, and manipulate images',
+    alt: true,
+    tools: [
+      { title: 'Image Compress', desc: 'Compress images while maintaining quality', emoji: '📦', href: '/image-compress' },
+      { title: 'Image Convert', desc: 'Convert images between different formats', emoji: '🔄', href: '/image-convert' },
+      { title: 'Target Size Compress', desc: 'Compress images to a specific target size', emoji: '🎯', href: '/image-compress-target' },
+      { title: 'HEIC to JPG', desc: 'Convert HEIC images to JPG format', emoji: '📸', href: '/heic-to-jpg' },
+      { title: 'Convert to HEIC', desc: 'Convert images to HEIC format', emoji: '📷', href: '/convert-to-heic' },
+      { title: 'Convert to AVIF', desc: 'Convert images to modern AVIF format', emoji: '🖼️', href: '/convert-to-avif' },
+      { title: 'Image Detect', desc: 'Detect objects and content in images', emoji: '🔍', href: '/image-detect' },
+      { title: 'Batch Compress', desc: 'Compress multiple images at once', emoji: '📦', href: '/image-batch-compress' },
+      { title: 'Image Resize', desc: 'Resize images to custom dimensions', emoji: '📐', href: '/image-resize' },
+    ],
+  },
+  {
+    index: '03',
+    name: 'Audio Tools',
+    desc: 'Convert, normalize, and edit audio files',
+    alt: false,
+    tools: [
+      { title: 'MP4 to MP3', desc: 'Convert MP4 video files to MP3 audio', emoji: '🔄', href: '/mp4-to-mp3' },
+      { title: 'Audio Convert', desc: 'Convert audio between different formats', emoji: '🎧', href: '/audio-convert' },
+      { title: 'Audio Normalize', desc: 'Normalize audio volume levels', emoji: '🔊', href: '/audio-normalize' },
+      { title: 'Extract Audio', desc: 'Extract audio from video files', emoji: '🎤', href: '/audio-extract' },
+      { title: 'Trim Audio', desc: 'Trim and cut audio files', emoji: '✂️', href: '/audio-trim' },
+    ],
+  },
+  {
+    index: '04',
+    name: 'Video Tools',
+    desc: 'Compress, convert, and edit video files',
+    alt: true,
+    tools: [
+      { title: 'Video Compress', desc: 'Compress videos to reduce file size', emoji: '📦', href: '/video-compress' },
+      { title: 'Video Trim', desc: 'Trim and cut video files', emoji: '✂️', href: '/video-trim' },
+      { title: 'Video Resize', desc: 'Resize videos to different resolutions', emoji: '📐', href: '/video-resize' },
+      { title: 'Video Convert', desc: 'Convert videos between different formats', emoji: '🔄', href: '/video-convert' },
+      { title: 'Compression Estimate', desc: 'Estimate video compression results', emoji: '📊', href: '/video-compress-estimate' },
+    ],
+  },
+  {
+    index: '05',
+    name: 'PDF Tools',
+    desc: 'Merge, split, and convert PDF documents',
+    alt: false,
+    tools: [
+      { title: 'Merge PDFs', desc: 'Combine multiple PDFs into one', emoji: '🔗', href: '/pdf-merge' },
+      { title: 'Split PDF', desc: 'Split PDF into separate pages', emoji: '✂️', href: '/pdf-split' },
+      { title: 'Compress PDF', desc: 'Reduce PDF file size', emoji: '📦', href: '/pdf-compress' },
+      { title: 'Images to PDF', desc: 'Convert images to PDF document', emoji: '📸', href: '/pdf-from-images' },
+      { title: 'PDF to Images', desc: 'Extract images from PDF pages', emoji: '🖼️', href: '/pdf-to-images' },
+    ],
+  },
+]
+
+const toolCount = categories.reduce((n, c) => n + c.tools.length, 0)
 
 export default function Home() {
-  const categories = [
-    {
-      name: 'YouTube Tools',
-      icon: '🎥',
-      description: 'Download and convert YouTube videos',
-      tools: [
-        {
-          title: 'YouTube to MP4',
-          description: 'Download YouTube videos as MP4 files',
-          href: '/youtube-to-mp4',
-          icon: '🎥',
-        },
-        {
-          title: 'YouTube to MP3',
-          description: 'Download YouTube videos as MP3 audio',
-          href: '/youtube-to-mp3',
-          icon: '🎵',
-        },
-      ],
-    },
-    {
-      name: 'Image Tools',
-      icon: '🖼️',
-      description: 'Compress, convert, and manipulate images',
-      tools: [
-        {
-          title: 'Image Compress',
-          description: 'Compress images while maintaining quality',
-          href: '/image-compress',
-          icon: '🗜️',
-        },
-        {
-          title: 'Image Convert',
-          description: 'Convert images between different formats',
-          href: '/image-convert',
-          icon: '🔄',
-        },
-        {
-          title: 'Target Size Compress',
-          description: 'Compress images to a specific target size',
-          href: '/image-compress-target',
-          icon: '🎯',
-        },
-        {
-          title: 'HEIC to JPG',
-          description: 'Convert HEIC images to JPG format',
-          href: '/heic-to-jpg',
-          icon: '📸',
-        },
-        {
-          title: 'Convert to HEIC',
-          description: 'Convert images to HEIC format',
-          href: '/convert-to-heic',
-          icon: '📷',
-        },
-        {
-          title: 'Convert to AVIF',
-          description: 'Convert images to modern AVIF format',
-          href: '/convert-to-avif',
-          icon: '🖼️',
-        },
-        {
-          title: 'Image Detect',
-          description: 'Detect objects and content in images',
-          href: '/image-detect',
-          icon: '🔍',
-        },
-        {
-          title: 'Batch Compress',
-          description: 'Compress multiple images at once',
-          href: '/image-batch-compress',
-          icon: '📦',
-        },
-        {
-          title: 'Image Resize',
-          description: 'Resize images to custom dimensions',
-          href: '/image-resize',
-          icon: '📐',
-        },
-      ],
-    },
-    {
-      name: 'Audio Tools',
-      icon: '🎵',
-      description: 'Convert, normalize, and edit audio files',
-      tools: [
-        {
-          title: 'MP4 to MP3',
-          description: 'Convert MP4 video files to MP3 audio',
-          href: '/mp4-to-mp3',
-          icon: '🔄',
-        },
-        {
-          title: 'Audio Convert',
-          description: 'Convert audio between different formats',
-          href: '/audio-convert',
-          icon: '🎧',
-        },
-        {
-          title: 'Audio Normalize',
-          description: 'Normalize audio volume levels',
-          href: '/audio-normalize',
-          icon: '🔊',
-        },
-        {
-          title: 'Extract Audio',
-          description: 'Extract audio from video files',
-          href: '/audio-extract',
-          icon: '🎤',
-        },
-        {
-          title: 'Trim Audio',
-          description: 'Trim and cut audio files',
-          href: '/audio-trim',
-          icon: '✂️',
-        },
-      ],
-    },
-    {
-      name: 'Video Tools',
-      icon: '🎬',
-      description: 'Compress, convert, and edit video files',
-      tools: [
-        {
-          title: 'Video Compress',
-          description: 'Compress videos to reduce file size',
-          href: '/video-compress',
-          icon: '🗜️',
-        },
-        {
-          title: 'Video Trim',
-          description: 'Trim and cut video files',
-          href: '/video-trim',
-          icon: '✂️',
-        },
-        {
-          title: 'Video Resize',
-          description: 'Resize videos to different resolutions',
-          href: '/video-resize',
-          icon: '📐',
-        },
-        {
-          title: 'Video Convert',
-          description: 'Convert videos between different formats',
-          href: '/video-convert',
-          icon: '🔄',
-        },
-        {
-          title: 'Compression Estimate',
-          description: 'Estimate video compression results',
-          href: '/video-compress-estimate',
-          icon: '📊',
-        },
-      ],
-    },
-    {
-      name: 'PDF Tools',
-      icon: '📄',
-      description: 'Merge, split, and convert PDF documents',
-      tools: [
-        {
-          title: 'Merge PDFs',
-          description: 'Combine multiple PDFs into one',
-          href: '/pdf-merge',
-          icon: '🔗',
-        },
-        {
-          title: 'Split PDF',
-          description: 'Split PDF into separate pages',
-          href: '/pdf-split',
-          icon: '✂️',
-        },
-        {
-          title: 'Compress PDF',
-          description: 'Reduce PDF file size',
-          href: '/pdf-compress',
-          icon: '🗜️',
-        },
-        {
-          title: 'Images to PDF',
-          description: 'Convert images to PDF document',
-          href: '/pdf-from-images',
-          icon: '📸',
-        },
-        {
-          title: 'PDF to Images',
-          description: 'Extract images from PDF pages',
-          href: '/pdf-to-images',
-          icon: '🖼️',
-        },
-      ],
-    },
-  ]
-
   return (
-    <main style={{
-      minHeight: '100vh',
-      display: 'flex',
-      flexDirection: 'column',
-      alignItems: 'center',
-      padding: '3rem 2rem',
-      paddingBottom: '5rem',
-    }}>
-      <div style={{
-        textAlign: 'center',
-        marginBottom: '4rem',
-      }}>
-        <h1 style={{
-          fontSize: '3rem',
-          fontWeight: 'bold',
-          color: 'white',
-          marginBottom: '1rem',
-        }}>
-          Brian Tools
+    <div style={{ minHeight: '100vh' }}>
+      <Header />
+
+      <section
+        style={{
+          maxWidth: 1080,
+          margin: '0 auto',
+          padding: '72px 32px 56px',
+          textAlign: 'center',
+          position: 'relative',
+        }}
+      >
+        <div style={{ display: 'inline-flex', gap: 6, marginBottom: 20 }}>
+          <span style={{ width: 14, height: 14, background: 'var(--accent)' }} />
+          <span style={{ width: 14, height: 14, background: 'var(--amber)' }} />
+          <span style={{ width: 14, height: 14, background: 'var(--accent-soft)' }} />
+        </div>
+        <h1
+          className="font-pixel"
+          style={{ fontSize: 40, lineHeight: 1.35, margin: '0 0 16px', fontWeight: 400 }}
+        >
+          BRIAN HSU
+          <br />
+          MEDIA SUITE
         </h1>
-        <p style={{
-          fontSize: '1.25rem',
-          color: 'rgba(255, 255, 255, 0.9)',
-        }}>
-          Complete Media Conversion & Processing Suite
+        <p
+          style={{
+            fontSize: 18,
+            color: 'var(--muted)',
+            maxWidth: 560,
+            margin: '0 auto 8px',
+            lineHeight: 1.5,
+          }}
+        >
+          Complete media conversion &amp; processing suite - download, convert, compress, and
+          edit, all in one place.
         </p>
-      </div>
+        <p style={{ fontSize: 13, color: 'var(--faint)', margin: '20px 0 0' }}>
+          {toolCount} tools · {categories.length} categories · no sign-up required
+        </p>
+      </section>
 
-      <div style={{
-        maxWidth: '1400px',
-        width: '100%',
-      }}>
-        {categories.map((category, idx) => (
-          <div key={category.name} style={{
-            marginBottom: idx < categories.length - 1 ? '4rem' : '0',
-          }}>
-            <div style={{
-              marginBottom: '1.5rem',
-              textAlign: 'center',
-            }}>
-              <h2 style={{
-                fontSize: '2rem',
-                fontWeight: 'bold',
-                color: 'white',
-                marginBottom: '0.5rem',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: '0.75rem',
-              }}>
-                <span style={{ fontSize: '2.5rem' }}>{category.icon}</span>
-                {category.name}
-              </h2>
-              <p style={{
-                fontSize: '1rem',
-                color: 'rgba(255, 255, 255, 0.8)',
-              }}>
-                {category.description}
-              </p>
+      {categories.map((cat) => (
+        <section
+          key={cat.index}
+          style={{
+            background: cat.alt ? 'var(--bg-alt)' : 'var(--bg)',
+            borderTop: '2px solid var(--border)',
+            borderBottom: '2px solid var(--border)',
+          }}
+        >
+          <div style={{ maxWidth: 1080, margin: '0 auto', padding: '48px 32px' }}>
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: 14, marginBottom: 6 }}>
+              <span className="font-pixel" style={{ fontSize: 28, color: 'var(--category-num)' }}>
+                {cat.index}
+              </span>
+              <h2 style={{ fontSize: 22, margin: 0, fontWeight: 700 }}>{cat.name}</h2>
             </div>
+            <p
+              style={{
+                fontSize: 14,
+                color: 'var(--muted)',
+                margin: '0 0 24px',
+                paddingBottom: 20,
+                borderBottom: '2px dashed var(--border)',
+              }}
+            >
+              {cat.desc}
+            </p>
 
-            <div style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
-              gap: '1.5rem',
-            }}>
-              {category.tools.map((tool) => (
-                <Link
-                  key={tool.href}
-                  href={tool.href}
-                  style={{
-                    textDecoration: 'none',
-                  }}
-                >
-                  <div style={{
-                    background: 'white',
-                    borderRadius: '12px',
-                    padding: '2rem',
-                    boxShadow: '0 10px 25px rgba(0, 0, 0, 0.2)',
-                    transition: 'transform 0.3s ease, box-shadow 0.3s ease',
-                    cursor: 'pointer',
-                    height: '100%',
-                  }}
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.transform = 'translateY(-5px)';
-                      e.currentTarget.style.boxShadow = '0 15px 35px rgba(0, 0, 0, 0.3)';
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.transform = 'translateY(0)';
-                      e.currentTarget.style.boxShadow = '0 10px 25px rgba(0, 0, 0, 0.2)';
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fill, minmax(230px, 1fr))',
+                gap: 16,
+              }}
+            >
+              {cat.tools.map((tool) => (
+                <Link key={tool.href} href={tool.href} className="tool-card notch-6">
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
                     }}
                   >
-                    <div style={{
-                      fontSize: '3rem',
-                      marginBottom: '1rem',
-                    }}>
-                      {tool.icon}
+                    <div className="icon-tile notch-4" style={{ width: 42, height: 42, fontSize: 20 }}>
+                      {tool.emoji}
                     </div>
-                    <h3 style={{
-                      fontSize: '1.5rem',
-                      fontWeight: 'bold',
-                      marginBottom: '0.5rem',
-                      color: '#333',
-                    }}>
+                    <span
+                      className="font-pixel"
+                      style={{
+                        fontSize: 8,
+                        color: 'var(--accent-dark)',
+                        background: 'var(--tile)',
+                        padding: '3px 6px',
+                      }}
+                    >
+                      TRY IT
+                    </span>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4 }}>
                       {tool.title}
-                    </h3>
-                    <p style={{
-                      color: '#666',
-                      lineHeight: '1.5',
-                    }}>
-                      {tool.description}
-                    </p>
+                    </div>
+                    <div style={{ fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.4 }}>
+                      {tool.desc}
+                    </div>
                   </div>
                 </Link>
               ))}
             </div>
           </div>
-        ))}
-      </div>
-    </main>
+        </section>
+      ))}
+
+      <footer
+        style={{ maxWidth: 1080, margin: '0 auto', padding: '40px 32px 56px', textAlign: 'center' }}
+      >
+        <div className="font-pixel" style={{ fontSize: 11, color: 'var(--faint)' }}>
+          BRIAN HSU MEDIA SUITE
+        </div>
+        <div style={{ fontSize: 12, color: 'var(--faint)', marginTop: 6 }}>
+          Built by Brian Hsu · files are processed securely and deleted after conversion
+        </div>
+      </footer>
+    </div>
   )
 }

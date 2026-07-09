@@ -23,6 +23,13 @@ class YouTubeDownloadRequest(BaseModel):
     """Request model for YouTube downloads."""
     url: str
     format: Literal["mp4", "mp3"]
+    quality: int | None = None  # max video height for mp4 (e.g. 720)
+    bitrate: int | None = None  # audio bitrate in kbps for mp3 (e.g. 192)
+
+
+class YouTubeInfoRequest(BaseModel):
+    """Request model for YouTube video info."""
+    url: str
 
 
 class ConversionResponse(BaseModel):
@@ -48,7 +55,9 @@ async def download_youtube(request: YouTubeDownloadRequest):
     try:
         result = youtube_service.download_video(
             url=request.url,
-            format_type=request.format
+            format_type=request.format,
+            quality=request.quality,
+            bitrate=request.bitrate,
         )
         
         file_id = Path(result["file_path"]).name
@@ -66,8 +75,25 @@ async def download_youtube(request: YouTubeDownloadRequest):
         raise HTTPException(status_code=500, detail=f"Internal error: {str(e)}")
 
 
+@router.post("/youtube/info")
+async def youtube_info(request: YouTubeInfoRequest):
+    """
+    Fetch YouTube video metadata (title, channel, thumbnail, duration,
+    per-quality size estimates) without downloading.
+    """
+    try:
+        return youtube_service.get_video_info(request.url)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Internal error: {str(e)}")
+
+
 @router.post("/convert/mp4-to-mp3", response_model=ConversionResponse)
-async def convert_mp4_to_mp3(file: UploadFile = File(...)):
+async def convert_mp4_to_mp3(
+    file: UploadFile = File(...),
+    bitrate: str = Form("192k"),
+):
     """
     Convert uploaded MP4 file to MP3.
     
@@ -94,7 +120,7 @@ async def convert_mp4_to_mp3(file: UploadFile = File(...)):
             f.write(content)
         
         # Convert to MP3
-        result = converter_service.mp4_to_mp3(temp_input)
+        result = converter_service.mp4_to_mp3(temp_input, bitrate=bitrate)
         
         # Cleanup input file
         os.remove(temp_input)
@@ -182,6 +208,7 @@ async def compress_video(
     preset: str = "balanced",
     codec: str = "h264",
     target_size_mb: float | None = None,
+    max_height: int | None = None,
 ):
     """
     Compress and optimize a video file.
@@ -235,6 +262,7 @@ async def compress_video(
             preset=CompressionPreset(preset),
             codec=VideoCodec(codec),
             target_size_mb=target_size_mb,
+            max_height=max_height,
         )
         
         # Cleanup input file
@@ -613,7 +641,8 @@ async def compress_image_target_size(
 @router.post("/convert/heic-to-jpg")
 async def convert_heic_to_jpg(
     file: UploadFile = File(...),
-    quality: int = Form(90)
+    quality: int = Form(90),
+    keep_metadata: bool = Form(True)
 ):
     """
     Convert HEIC/HEIF image to JPG format.
@@ -641,7 +670,8 @@ async def convert_heic_to_jpg(
         result = image_compression_service.convert_heic(
             file_path=temp_input,
             output_format="jpeg",
-            quality=quality
+            quality=quality,
+            keep_metadata=keep_metadata
         )
         
         os.remove(temp_input)
@@ -792,6 +822,141 @@ async def convert_to_avif(
         raise HTTPException(status_code=500, detail=f"Conversion error: {str(e)}")
 
 
+@router.post("/image/resize")
+async def resize_image_endpoint(
+    file: UploadFile = File(...),
+    width: int = Form(...),
+    height: int = Form(...)
+):
+    """
+    Resize an image to exact pixel dimensions.
+
+    Args:
+        file: Image file
+        width: Target width in pixels
+        height: Target height in pixels
+    """
+    if not (1 <= width <= 20000) or not (1 <= height <= 20000):
+        raise HTTPException(status_code=400, detail="Dimensions must be between 1 and 20000 pixels")
+
+    temp_input = f"/app/temp/resize_{uuid.uuid4()}_{file.filename}"
+
+    try:
+        with open(temp_input, "wb") as f:
+            content = await file.read()
+            f.write(content)
+
+        result = image_compression_service.resize_image(temp_input, width, height)
+        os.remove(temp_input)
+
+        if result["status"] == "error":
+            raise HTTPException(status_code=500, detail=result["error"])
+
+        file_id = Path(result["output_path"]).name
+
+        return {
+            "success": True,
+            "message": f"Resized to {width}x{height}",
+            "file_id": file_id,
+            "input_dimensions": result["input_dimensions"],
+            "output_dimensions": result["output_dimensions"],
+            "input_size_kb": result["input_size_kb"],
+            "output_size_kb": result["output_size_kb"],
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        if os.path.exists(temp_input):
+            os.remove(temp_input)
+        raise HTTPException(status_code=500, detail=f"Resize error: {str(e)}")
+
+
+@router.post("/batch/compress")
+async def batch_compress_quality(
+    files: list[UploadFile] = File(...),
+    quality: int = Form(75),
+):
+    """
+    Batch compress images with a shared quality setting and return a ZIP.
+
+    Args:
+        files: List of image files
+        quality: Quality 1-100 applied to every image
+    """
+    if not files:
+        raise HTTPException(status_code=400, detail="No files provided")
+    if len(files) > 100:
+        raise HTTPException(status_code=400, detail="Maximum 100 files per batch")
+    if quality < 1 or quality > 100:
+        raise HTTPException(status_code=400, detail="Quality must be between 1 and 100")
+
+    import zipfile
+
+    temp_files = []
+
+    try:
+        originals = []
+        for file in files:
+            temp_path = f"/app/temp/batchq_{uuid.uuid4()}_{file.filename}"
+            with open(temp_path, "wb") as f:
+                content = await file.read()
+                f.write(content)
+            temp_files.append(temp_path)
+            originals.append(file.filename)
+
+        results = []
+        outputs = []
+        for original_name, temp_path in zip(originals, temp_files):
+            try:
+                result = image_compression_service.compress_image(
+                    input_path=temp_path,
+                    mode=ImageCompressionMode("balanced"),
+                    quality=quality,
+                )
+                results.append({
+                    "name": original_name,
+                    "success": True,
+                    "file_id": Path(result["output_path"]).name,
+                    "input_size_kb": result["input_size_kb"],
+                    "output_size_kb": result["output_size_kb"],
+                    "compression_ratio": result["compression_ratio"],
+                })
+                outputs.append((original_name, result["output_path"]))
+            except Exception as e:
+                results.append({"name": original_name, "success": False, "error": str(e)})
+
+        for temp_file in temp_files:
+            if os.path.exists(temp_file):
+                os.remove(temp_file)
+
+        zip_file_id = None
+        if outputs:
+            zip_file_id = f"batch_compressed_{uuid.uuid4().hex[:8]}.zip"
+            zip_path = f"/app/downloads/{zip_file_id}"
+            with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+                for original_name, output_path in outputs:
+                    arcname = Path(original_name).stem + Path(output_path).suffix
+                    zf.write(output_path, arcname)
+
+        successful = sum(1 for r in results if r["success"])
+        return {
+            "success": True,
+            "message": f"Batch compression complete: {successful}/{len(files)} successful",
+            "total_files": len(files),
+            "successful": successful,
+            "failed": len(files) - successful,
+            "zip_file_id": zip_file_id,
+            "results": results,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        for temp_file in temp_files:
+            if os.path.exists(temp_file):
+                os.remove(temp_file)
+        raise HTTPException(status_code=500, detail=f"Batch compression error: {str(e)}")
+
+
 @router.post("/batch/compress/target-size")
 async def batch_compress_target_size(
     files: list[UploadFile] = File(...),
@@ -894,10 +1059,10 @@ async def convert_audio(
     
     Supported formats: mp3, aac, m4a, wav
     """
-    valid_formats = ["mp3", "aac", "m4a", "wav"]
+    valid_formats = ["mp3", "aac", "m4a", "wav", "flac", "ogg"]
     if output_format not in valid_formats:
         raise HTTPException(status_code=400, detail="Format must be one of: " + ", ".join(valid_formats))
-    
+
     temp_input = f"/app/temp/audio_{uuid.uuid4()}_{file.filename}"
     
     try:
@@ -1421,6 +1586,36 @@ async def convert_video_format(
 from src.services.pdf_service import PDFService
 pdf_service = PDFService()
 
+@router.post("/pdf/info")
+async def pdf_info(file: UploadFile = File(...)):
+    """Get PDF metadata (page count, size) without modifying it."""
+    temp_input = f"/app/temp/pdfinfo_{uuid.uuid4()}_{file.filename}"
+
+    try:
+        with open(temp_input, "wb") as f:
+            content = await file.read()
+            f.write(content)
+
+        info = pdf_service.get_pdf_info(temp_input)
+        size = Path(temp_input).stat().st_size
+        os.remove(temp_input)
+
+        if "error" in info:
+            raise HTTPException(status_code=400, detail=info["error"])
+
+        return {
+            "success": True,
+            "num_pages": info.get("page_count"),
+            "size_kb": round(size / 1024, 2),
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        if os.path.exists(temp_input):
+            os.remove(temp_input)
+        raise HTTPException(status_code=500, detail=f"PDF info error: {str(e)}")
+
+
 @router.post("/pdf/merge")
 async def merge_pdfs(files: list[UploadFile] = File(...)):
     """
@@ -1483,7 +1678,8 @@ async def merge_pdfs(files: list[UploadFile] = File(...)):
 async def split_pdf(
     file: UploadFile = File(...),
     pages: str = Form(None),
-    ranges: str = Form(None)
+    ranges: str = Form(None),
+    create_zip: bool = Form(False)
 ):
     """
     Split PDF into separate files by pages or ranges.
@@ -1522,11 +1718,21 @@ async def split_pdf(
         
         # Get file IDs
         output_file_ids = [Path(f["path"]).name for f in result["output_files"]]
-        
+
+        zip_file_id = None
+        if create_zip and output_file_ids:
+            import zipfile
+            zip_file_id = f"split_{uuid.uuid4().hex[:8]}.zip"
+            zip_path = f"/app/downloads/{zip_file_id}"
+            with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+                for f in result["output_files"]:
+                    zf.write(f["path"], Path(f["path"]).name)
+
         return {
             "success": True,
             "message": f"Split into {len(output_file_ids)} files",
             "file_ids": output_file_ids,
+            "zip_file_id": zip_file_id,
             "num_files_created": result["num_files_created"],
             "details": result["output_files"]
         }
@@ -1592,7 +1798,10 @@ async def compress_pdf(
 
 
 @router.post("/pdf/from-images")
-async def images_to_pdf(files: list[UploadFile] = File(...)):
+async def images_to_pdf(
+    files: list[UploadFile] = File(...),
+    page_size: str = Form("fit")
+):
     """
     Convert multiple images to a single PDF file.
     
@@ -1616,7 +1825,7 @@ async def images_to_pdf(files: list[UploadFile] = File(...)):
             temp_files.append(temp_path)
         
         # Convert to PDF
-        result = pdf_service.images_to_pdf(temp_files)
+        result = pdf_service.images_to_pdf(temp_files, page_size=page_size)
         
         # Clean up input files
         for temp_file in temp_files:
@@ -1649,7 +1858,8 @@ async def images_to_pdf(files: list[UploadFile] = File(...)):
 async def pdf_to_images(
     file: UploadFile = File(...),
     dpi: int = Form(200),
-    format: str = Form("png")
+    format: str = Form("png"),
+    create_zip: bool = Form(False)
 ):
     """
     Convert PDF pages to individual images.
@@ -1679,11 +1889,21 @@ async def pdf_to_images(
         
         # Get file IDs
         output_file_ids = [Path(f["path"]).name for f in result["output_files"]]
-        
+
+        zip_file_id = None
+        if create_zip and output_file_ids:
+            import zipfile
+            zip_file_id = f"pdf_pages_{uuid.uuid4().hex[:8]}.zip"
+            zip_path = f"/app/downloads/{zip_file_id}"
+            with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+                for f in result["output_files"]:
+                    zf.write(f["path"], Path(f["path"]).name)
+
         return {
             "success": True,
             "message": f"Converted {result['num_pages']} pages to images",
             "file_ids": output_file_ids,
+            "zip_file_id": zip_file_id,
             "num_pages": result["num_pages"],
             "dpi": result["dpi"],
             "format": result["format"],
